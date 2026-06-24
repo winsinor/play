@@ -8,7 +8,8 @@ User=__SERVICE_USER__
 WorkingDirectory=__REPO_DIR__
 Environment=SDL_VIDEODRIVER=kmsdrm
 Environment=SDL_AUDIODRIVER=dummy
-ExecStart=__REPO_DIR__/.venv/bin/python __REPO_DIR__/main.py
+Environment=EGL_PLATFORM=gbm
+ExecStart=/usr/bin/python3 __REPO_DIR__/main.py
 Restart=always
 RestartSec=2
 

@@ -52,9 +52,10 @@ bash setup/install.sh
 ```
 
 `setup/install.sh`:
-- installs `python3-pip`
-- `pip3 install`s `requirements.txt` (pygame/numpy come down as prebuilt
-  wheels from piwheels on a Pi — no slow source compiles)
+- installs `python3-pygame python3-numpy python3-evdev` via apt — apt's
+  `python3-pygame` is the one whose bundled SDL2 actually has `kmsdrm`
+  support compiled in; a pip/venv-installed pygame (from piwheels) does not
+  (see `docs/pi-bringup-status.md`)
 - adds your user to the `video`, `input`, `render` groups (needed for
   DRM + raw touch device access without root)
 - installs and enables `setup/pi-display.service` as a systemd service
@@ -93,12 +94,12 @@ To iterate without waiting on the service:
 ```
 sudo systemctl stop pi-display
 cd ~/play
-SDL_VIDEODRIVER=kmsdrm SDL_AUDIODRIVER=dummy .venv/bin/python main.py
+EGL_PLATFORM=gbm SDL_VIDEODRIVER=kmsdrm SDL_AUDIODRIVER=dummy python3 main.py
 ```
 
-(`setup/install.sh` creates `.venv` for you, since modern Raspberry Pi OS
-blocks system-wide `pip install`. If you're not using the venv, activate it
-first with `source .venv/bin/activate`.)
+(Plain system `python3`, not a venv — see the note in step 2 about why
+apt's `python3-pygame` is required. `EGL_PLATFORM=gbm` works around Mesa's
+EGL backend auto-detection failing in this headless setup.)
 
 Ctrl-C to stop, then `sudo systemctl start pi-display` when you're done.
 

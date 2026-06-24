@@ -1,9 +1,14 @@
-# Pi 3 + HyperPixel 4 bring-up: current status
+# Pi 3 + HyperPixel 4 bring-up: status
 
-This is a handoff doc for debugging the physical Raspberry Pi 3 + HyperPixel 4
-hardware bring-up. The app itself (`main.py`, `display/`, `tests/`) is done
-and tested — windowed/dummy-driver smoke tests pass, `pytest` passes. What's
-left is purely getting `kmsdrm` rendering working on the real Pi.
+**Resolved.** The `EGL not initialized` blocker below was fixed by forcing
+`EGL_PLATFORM=gbm` (Mesa's EGL platform auto-detection was failing in this
+headless setup). Confirmed end-to-end on hardware: `kmscube` and `main.py`
+(via `setup/diagnose-egl.sh`) both ran cleanly, including touchscreen
+auto-detection (`Goodix Capacitive TouchScreen`). The fix is now wired into
+`setup/pi-display.service` (`Environment=EGL_PLATFORM=gbm`, `ExecStart`
+pointed at system `python3`) and `setup/install.sh` (apt-installs
+`python3-pygame`/`numpy`/`evdev` instead of a venv). The history below is
+kept for reference.
 
 ## Goal
 
@@ -80,15 +85,17 @@ it's still stuck after that.
    app entirely (kernel/Mesa/firmware), not pygame-specific, and the fix
    target shifts to the OS/driver layer rather than anything in this repo.
 
-## Repo follow-up once the real fix is found
+## Repo follow-up (done)
 
-`setup/install.sh` currently creates a venv and `pip install`s
-`requirements.txt` (pygame/numpy). Since the venv-installed pygame is the
-one that *doesn't* support kmsdrm, and apt's `python3-pygame` got further,
-the install script likely needs to switch to apt-installing
-`python3-pygame python3-numpy` instead (or use
-`python3 -m venv --system-site-packages` so the venv can see the apt
-packages while still using a venv for `evdev`). `setup/pi-display.service`'s
-`ExecStart` would need to point at system `python3` instead of
-`.venv/bin/python` accordingly. Hold off on editing these until the EGL
-issue above is actually resolved and confirmed working end-to-end.
+`setup/install.sh` now apt-installs `python3-pygame python3-numpy
+python3-evdev` instead of creating a venv (the venv-installed pygame is the
+one that doesn't support kmsdrm). `setup/pi-display.service`'s `ExecStart`
+points at system `python3`, with `Environment=EGL_PLATFORM=gbm` added
+alongside the existing `SDL_VIDEODRIVER=kmsdrm`/`SDL_AUDIODRIVER=dummy`.
+`docs/pi-setup.md` is updated to match. `requirements.txt` is unchanged —
+it's still used for the windowed dev workflow (`python3 main.py --windowed`
+off-Pi), which is unaffected.
+
+If you're re-running setup on a Pi that already went through the old
+venv-based `install.sh`, the stale `.venv/` directory is harmless (unused,
+gitignored) but can be deleted: `rm -rf .venv`.

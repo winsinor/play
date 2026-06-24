@@ -8,15 +8,11 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVICE_USER="${SUDO_USER:-$(whoami)}"
 
 echo "==> Installing system packages..."
+# apt's python3-pygame, not a pip/venv-installed one: its bundled SDL2 has
+# kmsdrm support compiled in, and the venv-installed one (from piwheels)
+# doesn't (see docs/pi-bringup-status.md).
 sudo apt-get update
-sudo apt-get install -y python3-pip python3-venv
-
-echo "==> Creating virtualenv and installing Python dependencies (pygame/numpy come from piwheels prebuilt for the Pi)..."
-# Modern Raspberry Pi OS (Debian Bookworm+) blocks system-wide pip installs
-# (PEP 668 "externally managed environment"), so we use a venv instead.
-python3 -m venv "$REPO_DIR/.venv"
-"$REPO_DIR/.venv/bin/pip" install --upgrade pip
-"$REPO_DIR/.venv/bin/pip" install -r "$REPO_DIR/requirements.txt"
+sudo apt-get install -y python3-pygame python3-numpy python3-evdev
 
 echo "==> Adding $SERVICE_USER to video/input/render groups for DRM + touch access..."
 sudo usermod -aG video,input,render "$SERVICE_USER"
