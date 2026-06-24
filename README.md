@@ -45,6 +45,13 @@ On a Raspberry Pi with a HyperPixel 4 display, see
 [`docs/pi-setup.md`](docs/pi-setup.md) for full hardware setup, rotation
 config, and installing it as an auto-starting systemd service.
 
+## Remote preview
+
+By default the app also serves an MJPEG preview of whatever's on screen at
+`http://<device-ip>:8000/`, with a slider on that page to adjust the stream
+rate live (no restart needed) -- handy for checking a headless Pi from a
+laptop or phone on the same network. Pass `--no-stream` to disable it.
+
 ## Adding a new demo
 
 1. Add `display/demos/your_thing.py` implementing the `Demo` interface in

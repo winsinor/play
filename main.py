@@ -14,6 +14,7 @@ from display import config
 from display.demos import ALL_DEMOS
 from display.input_touch import TouchInputThread
 from display.manager import DemoManager, NavEvent
+from display.streaming import FrameStreamer, start_server
 
 
 def parse_args(argv=None):
@@ -28,6 +29,11 @@ def parse_args(argv=None):
         type=int,
         default=None,
         help="quit automatically after N frames (useful for smoke tests)",
+    )
+    parser.add_argument(
+        "--no-stream",
+        action="store_true",
+        help="don't serve the live display preview over HTTP",
     )
     return parser.parse_args(argv)
 
@@ -54,6 +60,12 @@ def main(argv=None):
 
     manager = DemoManager([demo_cls() for demo_cls in ALL_DEMOS])
     manager.setup(screen.get_size())
+
+    streamer = None
+    if not args.no_stream:
+        streamer = FrameStreamer(config.STREAM_DEFAULT_FPS)
+        start_server(streamer, config.STREAM_PORT)
+        print(f"==> Preview stream: http://<this-device-ip>:{config.STREAM_PORT}/")
 
     input_queue = queue.Queue()
     touch_thread = TouchInputThread(
@@ -94,6 +106,9 @@ def main(argv=None):
         manager.update(dt)
         manager.draw(screen)
         pygame.display.flip()
+
+        if streamer is not None:
+            streamer.update_frame(screen)
 
         frame_count += 1
         if args.max_frames is not None and frame_count >= args.max_frames:
