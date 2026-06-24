@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Idle-art display: cycles between fun generative demos (boids, maze, fractal)
-on a timer, keyboard input, or touchscreen swipe/tap. See README.md and
-docs/pi-setup.md for hardware setup."""
+"""Idle-art display: cycles between fun generative demos (boids, maze,
+fractal, dvd, snake) on keyboard input or touchscreen swipe -- it never
+auto-advances. See README.md and docs/pi-setup.md for hardware setup."""
 
 import argparse
 import os
@@ -52,15 +52,16 @@ def main(argv=None):
     pygame.display.set_caption("Idle Display")
     pygame.mouse.set_visible(False)
 
-    manager = DemoManager([demo_cls() for demo_cls in ALL_DEMOS], config.AUTO_ADVANCE_SECONDS)
+    manager = DemoManager([demo_cls() for demo_cls in ALL_DEMOS])
     manager.setup(screen.get_size())
 
-    nav_queue = queue.Queue()
+    input_queue = queue.Queue()
     touch_thread = TouchInputThread(
-        nav_queue,
+        input_queue,
         swipe_threshold_px=config.SWIPE_THRESHOLD_PX,
         tap_max_duration=config.TAP_MAX_DURATION,
         tap_max_distance_px=config.TAP_MAX_DISTANCE_PX,
+        long_press_min_duration=config.LONG_PRESS_MIN_DURATION,
     )
     touch_thread.start()
 
@@ -71,8 +72,12 @@ def main(argv=None):
     while running:
         dt = clock.tick(config.FPS) / 1000.0
 
-        while not nav_queue.empty():
-            manager.handle_nav(nav_queue.get_nowait())
+        while not input_queue.empty():
+            input_event = input_queue.get_nowait()
+            if isinstance(input_event, NavEvent):
+                manager.handle_nav(input_event)
+            else:
+                manager.current.handle_touch(input_event)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -84,8 +89,6 @@ def main(argv=None):
                     manager.handle_nav(NavEvent.NEXT)
                 elif event.key == pygame.K_LEFT:
                     manager.handle_nav(NavEvent.PREV)
-                elif event.key == pygame.K_SPACE:
-                    manager.handle_nav(NavEvent.TOGGLE_PAUSE)
             manager.current.handle_event(event)
 
         manager.update(dt)

@@ -2,12 +2,13 @@ import numpy as np
 import pygame
 
 from display.demos.base import Demo
+from display.manager import LongPressEvent, TapEvent
 
 
 class BoidsDemo(Demo):
     NUM_BOIDS = 120
-    MAX_SPEED = 140.0
-    MAX_FORCE = 250.0
+    MAX_SPEED = 190.0
+    MAX_FORCE = 340.0
     PERCEPTION_RADIUS = 60.0
     SEPARATION_RADIUS = 24.0
     WEIGHT_SEPARATION = 1.6
@@ -17,17 +18,31 @@ class BoidsDemo(Demo):
 
     def setup(self, screen_size):
         self.width, self.height = screen_size
+        self._spawn_random(self.NUM_BOIDS)
+
+    def _spawn_random(self, count):
         rng = np.random.default_rng()
-        self.positions = rng.uniform(
-            [0, 0], [self.width, self.height], size=(self.NUM_BOIDS, 2)
-        )
-        angles = rng.uniform(0, 2 * np.pi, size=self.NUM_BOIDS)
+        self.positions = rng.uniform([0, 0], [self.width, self.height], size=(count, 2))
+        angles = rng.uniform(0, 2 * np.pi, size=count)
         self.velocities = (
             np.column_stack([np.cos(angles), np.sin(angles)]) * self.MAX_SPEED * 0.5
         )
 
     def handle_event(self, event):
         pass
+
+    def handle_touch(self, event):
+        if isinstance(event, TapEvent):
+            self._add_boid(event.x, event.y)
+        elif isinstance(event, LongPressEvent):
+            self._spawn_random(self.NUM_BOIDS)
+
+    def _add_boid(self, x, y):
+        rng = np.random.default_rng()
+        angle = rng.uniform(0, 2 * np.pi)
+        velocity = np.array([np.cos(angle), np.sin(angle)]) * self.MAX_SPEED * 0.5
+        self.positions = np.vstack([self.positions, [float(x), float(y)]])
+        self.velocities = np.vstack([self.velocities, velocity])
 
     def update(self, dt):
         accel = compute_flock_acceleration(
@@ -48,8 +63,19 @@ class BoidsDemo(Demo):
             self.velocities[too_fast] *= (self.MAX_SPEED / speeds[too_fast])[:, None]
 
         self.positions = self.positions + self.velocities * dt
-        self.positions[:, 0] %= self.width
-        self.positions[:, 1] %= self.height
+        self._bounce_off_walls()
+
+    def _bounce_off_walls(self):
+        # Hard boundaries: mirror any overshoot back into bounds and flip the
+        # corresponding velocity component, rather than wrapping around.
+        for axis, bound in ((0, self.width), (1, self.height)):
+            too_low = self.positions[:, axis] < 0
+            self.positions[too_low, axis] = -self.positions[too_low, axis]
+            self.velocities[too_low, axis] *= -1
+
+            too_high = self.positions[:, axis] > bound
+            self.positions[too_high, axis] = 2 * bound - self.positions[too_high, axis]
+            self.velocities[too_high, axis] *= -1
 
     def draw(self, surface):
         surface.fill(self.BG_COLOR)

@@ -70,22 +70,23 @@ systemctl status pi-display
 journalctl -u pi-display -f
 ```
 
-You should see boids/maze/fractal cycling on the screen. The log line
-`[input_touch] reading touch events from /dev/input/eventN (...)` confirms the
-touchscreen was found; `[input_touch] no touchscreen device found` means the
-auto-detection didn't find it (see Troubleshooting below) — keyboard nav still
-works either way if you have one plugged in.
+You should see the first demo (boids) on screen, staying up until you swipe.
+The log line `[input_touch] reading touch events from /dev/input/eventN (...)`
+confirms the touchscreen was found; `[input_touch] no touchscreen device
+found` means the auto-detection didn't find it (see Troubleshooting below) —
+keyboard nav still works either way if you have one plugged in.
 
 ## 4. Controls
+
+Demos never auto-advance — the cycle only moves on a swipe.
 
 | Input | Action |
 |---|---|
 | Swipe left / right on screen | Next / previous demo |
-| Tap | Pause / resume the auto-advance timer |
+| Tap | Demo-specific (e.g. boids: add a boid at that spot) |
+| Long press | Demo-specific (e.g. boids: reset to the original flock) |
 | Right / Left arrow key | Next / previous demo |
-| Space | Pause / resume the auto-advance timer |
 | Esc / q | Quit (mainly useful when running by hand over SSH) |
-| (nothing) | Auto-advances to the next demo every `AUTO_ADVANCE_SECONDS` (see `display/config.py`) |
 
 ## 5. Manual / interactive debugging
 
@@ -132,19 +133,21 @@ Environment=EVDEV_TOUCH_DEVICE=/dev/input/event2
 
 All the knobs live in `display/config.py`:
 
-- `AUTO_ADVANCE_SECONDS` — how long each demo stays up before auto-advancing
 - `SWIPE_THRESHOLD_PX` — how far (in raw touch units) a swipe needs to travel
 - `TAP_MAX_DURATION` / `TAP_MAX_DISTANCE_PX` — what counts as a "tap" vs a drag
+- `LONG_PRESS_MIN_DURATION` — how long a held touch needs to last to count as
+  a long press instead of a tap
 
 Per-demo parameters (boid count/speed, maze cell size/animation speed,
-fractal zoom targets/rate) are constants at the top of each file in
-`display/demos/`.
+fractal zoom targets/rate, DVD corner-hit timing, snake move speed) are
+constants at the top of each file in `display/demos/`.
 
 ## 8. Adding a new demo
 
 1. Create `display/demos/your_thing.py` with a class implementing the `Demo`
    interface from `display/demos/base.py` (`setup`, `handle_event`, `update`,
-   `draw`).
+   `draw`, and optionally `handle_touch` for demo-specific tap/long-press
+   behavior — swipes are handled globally and never reach `handle_touch`).
 2. Add it to `ALL_DEMOS` in `display/demos/__init__.py`.
 
-That's it — it's now part of the auto-advance/swipe/keyboard cycle.
+That's it — it's now part of the swipe/keyboard cycle.

@@ -2,26 +2,34 @@
 
 A fun idle-art display for a Raspberry Pi + Pimoroni HyperPixel 4 screen. It
 cycles between generative-art demos — boids flocking, a maze generator/solver,
-and a Mandelbrot zoom — on a timer, or on demand via keyboard or touchscreen
-swipe/tap.
+a Julia set zoom, a DVD-logo bounce, and a self-playing Snake AI — switching
+only on demand via keyboard or touchscreen swipe (it never auto-advances).
 
 ## Demos
 
-- **Boids** — classic separation/alignment/cohesion flocking, vectorized with
-  numpy.
-- **Maze** — animated recursive-backtracker generation, then a BFS solve
-  traced across the screen, then it regenerates.
-- **Fractal** — Mandelbrot escape-time zoom into a few curated coordinates,
-  with a cycling color palette.
+- **Boids** — separation/alignment/cohesion flocking, vectorized with numpy,
+  with hard reflective walls. Tap to add a boid, long-press to reset the
+  flock.
+- **Maze** — animated recursive-backtracker generation (start/goal marked
+  green/red), then a BFS solve traced across the screen, then it regenerates.
+- **Fractal** — Julia set escape-time zoom that steers toward the boundary
+  (the area with the most detail) instead of zooming into a flat interior or
+  exterior region, with a cycling color palette.
+- **DVD** — the bouncing-logo screensaver, engineered so it hits a corner
+  exactly once per cycle (not by chance) with a special flash animation, and
+  changes color on every wall touch.
+- **Snake** — an AI that always follows a precomputed Hamiltonian cycle
+  through the whole board as a safety net (so it can never trap or crash
+  itself), taking greedy shortcuts toward the food whenever there's enough
+  free space to do so safely.
 
 ## Controls
 
 | Input | Action |
 |---|---|
 | Swipe left / right (touchscreen) | Next / previous demo |
-| Tap (touchscreen) | Pause / resume auto-advance |
+| Tap / long-press (touchscreen) | Demo-specific (see above) |
 | Left / Right arrow | Previous / next demo |
-| Space | Pause / resume auto-advance |
 | Esc / q | Quit |
 
 ## Running it

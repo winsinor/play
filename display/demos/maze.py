@@ -12,6 +12,8 @@ BG_COLOR = (12, 14, 20)
 VISITED_COLOR = (40, 70, 110)
 FRONTIER_COLOR = (90, 140, 200)
 PATH_COLOR = (250, 200, 60)
+START_COLOR = (60, 200, 90)
+GOAL_COLOR = (210, 60, 60)
 
 DIRS = {"N": (0, -1), "S": (0, 1), "E": (1, 0), "W": (-1, 0)}
 OPPOSITE = {"N": "S", "S": "N", "E": "W", "W": "E"}
@@ -80,6 +82,8 @@ class MazeDemo(Demo):
         for c, r in self.solve_path:
             self._fill_cell(surface, c, r, PATH_COLOR)
         self._draw_walls(surface)
+        self._fill_cell(surface, 0, 0, START_COLOR)
+        self._fill_cell(surface, self.cols - 1, self.rows - 1, GOAL_COLOR)
 
     def _fill_cell(self, surface, c, r, color):
         x = self.offset_x + c * CELL_SIZE
