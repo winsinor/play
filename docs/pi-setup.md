@@ -8,23 +8,39 @@ required.
 
 ## 1. Enable the display + touch overlay, with rotation
 
+On current Raspberry Pi OS (kernel 5.15+, images from 2022-04-04 or later —
+this is what ships today), HyperPixel4 is driven by the standard VC4 **KMS**
+panel driver, *not* the legacy `dtoverlay=hyperpixel4` overlay. The legacy
+overlay doesn't create a `/dev/dri` device at all, so SDL's `kmsdrm` driver
+will fail with `pygame.error: kmsdrm not available` if that's all you have.
+
 Edit `/boot/firmware/config.txt` (older OS images: `/boot/config.txt`) and add:
 
 ```
-dtoverlay=hyperpixel4,rotate=90
+dtoverlay=vc4-kms-dpi-hyperpixel4
 ```
 
-`rotate` accepts `0`, `90`, `180`, or `270`. Pick whichever makes the display
-come up the right way round for your mount — Pimoroni's overlay rotates the
-**touch input together with the display**, so the app never needs to do its
-own coordinate transform.
+The default orientation is portrait with the USB/power ports on the right.
+For landscape, add one of these `dtparam` lines directly underneath (these
+rotate the touch input to match, so the app never needs its own coordinate
+transform):
+
+```
+dtparam=rotate=90,touchscreen-swapped-x-y,touchscreen-inverted-y
+```
+— landscape, ports on the bottom — or:
+```
+dtparam=rotate=270,touchscreen-swapped-x-y,touchscreen-inverted-x
+```
+— landscape, ports on the top. Pick whichever matches your physical mount.
 
 Reboot, and confirm the display is alive:
 
 ```
 sudo reboot
 # after it comes back up:
-fbset      # should show an 800x480 (or 480x800, depending on rotate) framebuffer
+ls /dev/dri              # should list card0/card1 + renderD128 -- if empty, the KMS overlay isn't loading
+fbset                     # should show an 800x480 (or 480x800, depending on rotate) framebuffer
 ```
 
 ## 2. Install the app
