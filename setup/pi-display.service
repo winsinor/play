@@ -1,0 +1,16 @@
+[Unit]
+Description=Idle-art display (boids/maze/fractal) for HyperPixel 4
+After=multi-user.target
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+WorkingDirectory=__REPO_DIR__
+Environment=SDL_VIDEODRIVER=kmsdrm
+Environment=SDL_AUDIODRIVER=dummy
+ExecStart=/usr/bin/python3 __REPO_DIR__/main.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

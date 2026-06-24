@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""Idle-art display: cycles between fun generative demos (boids, maze, fractal)
+on a timer, keyboard input, or touchscreen swipe/tap. See README.md and
+docs/pi-setup.md for hardware setup."""
+
+import argparse
+import os
+import queue
+import sys
+
+import pygame
+
+from display import config
+from display.demos import ALL_DEMOS
+from display.input_touch import TouchInputThread
+from display.manager import DemoManager, NavEvent
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--windowed",
+        action="store_true",
+        help="run in a normal desktop window instead of the Pi's kmsdrm framebuffer",
+    )
+    parser.add_argument(
+        "--max-frames",
+        type=int,
+        default=None,
+        help="quit automatically after N frames (useful for smoke tests)",
+    )
+    return parser.parse_args(argv)
+
+
+def configure_video_driver(windowed):
+    if windowed or os.environ.get("SDL_VIDEODRIVER"):
+        return
+    if os.path.exists("/dev/dri"):
+        os.environ["SDL_VIDEODRIVER"] = "kmsdrm"
+        os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    configure_video_driver(args.windowed)
+
+    pygame.init()
+    pygame.mouse.set_visible(False)
+
+    # On the Pi, kmsdrm always renders fullscreen at the display's native
+    # resolution -- no extra fullscreen flag needed.
+    screen = pygame.display.set_mode(config.SCREEN_SIZE)
+    pygame.display.set_caption("Idle Display")
+
+    manager = DemoManager([demo_cls() for demo_cls in ALL_DEMOS], config.AUTO_ADVANCE_SECONDS)
+    manager.setup(screen.get_size())
+
+    nav_queue = queue.Queue()
+    touch_thread = TouchInputThread(
+        nav_queue,
+        swipe_threshold_px=config.SWIPE_THRESHOLD_PX,
+        tap_max_duration=config.TAP_MAX_DURATION,
+        tap_max_distance_px=config.TAP_MAX_DISTANCE_PX,
+    )
+    touch_thread.start()
+
+    clock = pygame.time.Clock()
+    frame_count = 0
+    running = True
+
+    while running:
+        dt = clock.tick(config.FPS) / 1000.0
+
+        while not nav_queue.empty():
+            manager.handle_nav(nav_queue.get_nowait())
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_ESCAPE, pygame.K_q):
+                    running = False
+                elif event.key == pygame.K_RIGHT:
+                    manager.handle_nav(NavEvent.NEXT)
+                elif event.key == pygame.K_LEFT:
+                    manager.handle_nav(NavEvent.PREV)
+                elif event.key == pygame.K_SPACE:
+                    manager.handle_nav(NavEvent.TOGGLE_PAUSE)
+            manager.current.handle_event(event)
+
+        manager.update(dt)
+        manager.draw(screen)
+        pygame.display.flip()
+
+        frame_count += 1
+        if args.max_frames is not None and frame_count >= args.max_frames:
+            running = False
+
+    touch_thread.stop()
+    pygame.quit()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
