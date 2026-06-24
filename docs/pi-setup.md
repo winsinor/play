@@ -77,13 +77,17 @@ To iterate without waiting on the service:
 ```
 sudo systemctl stop pi-display
 cd ~/play
-SDL_VIDEODRIVER=kmsdrm SDL_AUDIODRIVER=dummy python3 main.py
+SDL_VIDEODRIVER=kmsdrm SDL_AUDIODRIVER=dummy .venv/bin/python main.py
 ```
+
+(`setup/install.sh` creates `.venv` for you, since modern Raspberry Pi OS
+blocks system-wide `pip install`. If you're not using the venv, activate it
+first with `source .venv/bin/activate`.)
 
 Ctrl-C to stop, then `sudo systemctl start pi-display` when you're done.
 
 To test logic changes without the Pi at all, run windowed on any machine with
-pygame installed:
+pygame installed (use a venv there too if your OS enforces PEP 668):
 
 ```
 python3 main.py --windowed
