@@ -54,6 +54,11 @@ out as causes:
 
 ## Not yet tried — next steps
 
+`setup/diagnose-egl.sh` runs all three of the steps below in order against a
+single timestamped log file (`egl-diagnosis-*.log` in the repo root, gitignored)
+— run it on the Pi with `bash setup/diagnose-egl.sh` and paste back the log if
+it's still stuck after that.
+
 1. Force Mesa's EGL platform instead of relying on auto-detection (a known
    fix for headless EGL failures where probing fails to pick a backend):
    ```bash
