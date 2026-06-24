@@ -77,8 +77,10 @@ class SnakeDemo(Demo):
 
     def _step(self):
         head = self.snake[-1]
+        tail = self.snake[0]
         next_cell = choose_next_move(
             head,
+            tail,
             self.food,
             self.occupied,
             self.cycle_index,
@@ -86,6 +88,13 @@ class SnakeDemo(Demo):
             len(self.cycle),
             len(self.snake),
         )
+
+        if next_cell in self.occupied:
+            # Should be unreachable given choose_next_move's safety margin,
+            # but never silently step onto our own body -- treat it as a
+            # real collision (game over) rather than corrupting state.
+            self.game_over = True
+            return
 
         ate = next_cell == self.food
         self.snake.append(next_cell)
@@ -141,33 +150,60 @@ def build_hamiltonian_cycle(cols, rows):
     return cycle
 
 
-def choose_next_move(head, food, occupied, cycle_index, cycle_next, cycle_length, snake_length):
+def choose_next_move(head, tail, food, occupied, cycle_index, cycle_next, cycle_length, snake_length):
     """Pick the next cell to move into. Falls back to the next cell on the
-    Hamiltonian cycle (always safe) unless there's a generous amount of free
-    board left, in which case it greedily takes the farthest-forward-along-
-    the-cycle empty neighbor that doesn't pass the food -- a shortcut that's
-    still guaranteed not to self-collide, since it never steps onto an
-    occupied cell."""
+    Hamiltonian cycle (always safe under normal cycle-following) unless
+    there's a generous amount of free board left, in which case it greedily
+    takes the farthest-forward-along-the-cycle empty neighbor that doesn't
+    pass the food.
+
+    A shortcut jumps the head forward by more than one cycle index per move,
+    which breaks the usual invariant that the snake's body is a contiguous
+    arc of the cycle directly behind the head -- so a shortcut candidate is
+    only accepted if it still leaves a cycle-index gap to our own tail
+    bigger than the snake's length. Without that margin, repeated
+    shortcutting can let the head lap close enough to the tail that even
+    the "always safe" fallback move lands on an occupied cell."""
     fallback = cycle_next[head]
     free_space = cycle_length - snake_length
-    if free_space < cycle_length * SHORTCUT_FREE_SPACE_FRACTION:
+
+    if free_space >= cycle_length * SHORTCUT_FREE_SPACE_FRACTION:
+        head_idx = cycle_index[head]
+        tail_idx = cycle_index[tail]
+        food_forward = (cycle_index[food] - head_idx) % cycle_length
+
+        def is_safe(cell_idx):
+            return (tail_idx - cell_idx) % cycle_length > snake_length
+
+        best = fallback if fallback not in occupied and is_safe(cycle_index[fallback]) else None
+        best_forward = (cycle_index[fallback] - head_idx) % cycle_length if best else -1
+
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            neighbor = (head[0] + dx, head[1] + dy)
+            if neighbor not in cycle_index or neighbor in occupied:
+                continue
+            forward = (cycle_index[neighbor] - head_idx) % cycle_length
+            if forward == 0 or forward > food_forward:
+                continue
+            if not is_safe(cycle_index[neighbor]):
+                continue
+            if forward > best_forward:
+                best = neighbor
+                best_forward = forward
+
+        if best is not None:
+            return best
+
+    if fallback not in occupied:
         return fallback
 
-    head_idx = cycle_index[head]
-    food_forward = (cycle_index[food] - head_idx) % cycle_length
-
-    best = fallback if fallback not in occupied else None
-    best_forward = (cycle_index[fallback] - head_idx) % cycle_length if best else -1
-
+    # Last resort: the cycle-following invariant has broken down (only
+    # possible as a side effect of an earlier shortcut) and even the
+    # "always safe" cycle move is blocked. Prefer any unoccupied grid
+    # neighbor over stepping onto our own body; if truly none exists, the
+    # caller's own occupancy check turns this into a real game over.
     for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
         neighbor = (head[0] + dx, head[1] + dy)
-        if neighbor not in cycle_index or neighbor in occupied:
-            continue
-        forward = (cycle_index[neighbor] - head_idx) % cycle_length
-        if forward == 0 or forward > food_forward:
-            continue
-        if forward > best_forward:
-            best = neighbor
-            best_forward = forward
-
-    return best if best is not None else fallback
+        if neighbor in cycle_index and neighbor not in occupied:
+            return neighbor
+    return fallback
