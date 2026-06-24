@@ -8,21 +8,33 @@ from display.manager import LongPressEvent, TapEvent
 class BoidsDemo(Demo):
     NUM_BOIDS = 120
     MAX_SPEED = 190.0
-    MAX_FORCE = 340.0
-    PERCEPTION_RADIUS = 60.0
-    SEPARATION_RADIUS = 24.0
+    MAX_FORCE = 400.0
+    # Perception scales with screen size rather than being a fixed pixel
+    # radius. With this large a fraction, most boids can see most of the
+    # flock most of the time, which is what makes the flock move as one
+    # coherent body instead of splintering into separate circling cliques.
+    PERCEPTION_RATIO = 0.4
     WEIGHT_SEPARATION = 1.6
     WEIGHT_ALIGNMENT = 1.0
-    WEIGHT_COHESION = 0.9
+    WEIGHT_COHESION = 1.5
     BG_COLOR = (10, 12, 24)
 
     def setup(self, screen_size):
         self.width, self.height = screen_size
+        self.perception_radius = max(self.width, self.height) * self.PERCEPTION_RATIO
         self._spawn_random(self.NUM_BOIDS)
 
     def _spawn_random(self, count):
         rng = np.random.default_rng()
-        self.positions = rng.uniform([0, 0], [self.width, self.height], size=(count, 2))
+        # Spawn clustered near the center (40% of the screen) so boids start
+        # within sight of each other instead of scattered too thin.
+        cx, cy = self.width / 2, self.height / 2
+        spawn_w, spawn_h = self.width * 0.4, self.height * 0.4
+        self.positions = rng.uniform(
+            [cx - spawn_w / 2, cy - spawn_h / 2],
+            [cx + spawn_w / 2, cy + spawn_h / 2],
+            size=(count, 2),
+        )
         angles = rng.uniform(0, 2 * np.pi, size=count)
         self.velocities = (
             np.column_stack([np.cos(angles), np.sin(angles)]) * self.MAX_SPEED * 0.5
@@ -48,8 +60,7 @@ class BoidsDemo(Demo):
         accel = compute_flock_acceleration(
             self.positions,
             self.velocities,
-            perception_radius=self.PERCEPTION_RADIUS,
-            separation_radius=self.SEPARATION_RADIUS,
+            perception_radius=self.perception_radius,
             weight_separation=self.WEIGHT_SEPARATION,
             weight_alignment=self.WEIGHT_ALIGNMENT,
             weight_cohesion=self.WEIGHT_COHESION,
@@ -106,53 +117,70 @@ def compute_flock_acceleration(
     velocities,
     *,
     perception_radius,
-    separation_radius,
     weight_separation,
     weight_alignment,
     weight_cohesion,
     max_force,
+    min_separation_fraction=0.05,
 ):
-    """Pure numpy steering computation, independent of pygame, so it's testable
-    without a display."""
+    """Pure numpy steering computation, independent of pygame, so it's
+    testable without a display.
+
+    All three classic boid behaviors (separation, alignment, cohesion) look
+    at the *same* perception radius, and each is clamped to max_force
+    individually before being weighted and summed -- so a high weight can
+    still push a behavior's contribution past max_force overall. This
+    mirrors a hand-tuned terminal boids sketch whose flocking felt notably
+    better than clamping the combined total: separation in particular decays
+    smoothly with distance (~1/d, via a diff/dist^2 vector) across the whole
+    perception radius rather than only kicking in within a small separate
+    separation radius, which avoids boids packing into tight, sharp-edged
+    orbiting clusters. Alignment uses the raw average neighbor velocity
+    (not relative to the boid's own velocity), again matching that sketch.
+    """
     n = len(positions)
     if n == 0:
         return np.zeros_like(positions)
 
     diffs = positions[:, None, :] - positions[None, :, :]  # diffs[i, j] = pos[i] - pos[j]
-    dist = np.linalg.norm(diffs, axis=2)
-    np.fill_diagonal(dist, np.inf)
+    dist_sq = np.sum(diffs * diffs, axis=2)
+    np.fill_diagonal(dist_sq, np.inf)
 
-    perception_mask = dist < perception_radius
-    separation_mask = dist < separation_radius
-
-    safe_dist = np.where(separation_mask, dist, np.inf)
-    sep_vectors = diffs / safe_dist[:, :, None]
-    sep_vectors = np.where(separation_mask[:, :, None], sep_vectors, 0.0)
-    separation = sep_vectors.sum(axis=1)
-
+    perception_mask = dist_sq < perception_radius**2
     counts = perception_mask.sum(axis=1)
     safe_counts = np.where(counts > 0, counts, 1)
+    has_neighbors = counts > 0
+
+    min_dist_sq = (perception_radius * min_separation_fraction) ** 2
+    safe_dist_sq = np.maximum(dist_sq, min_dist_sq)
+    sep_vectors = np.where(perception_mask[:, :, None], diffs / safe_dist_sq[:, :, None], 0.0)
+    separation = sep_vectors.sum(axis=1)
 
     neighbor_vel_sum = np.where(
         perception_mask[:, :, None], velocities[None, :, :], 0.0
     ).sum(axis=1)
-    avg_vel = neighbor_vel_sum / safe_counts[:, None]
-    alignment = np.where(counts[:, None] > 0, avg_vel - velocities, 0.0)
+    alignment = np.where(has_neighbors[:, None], neighbor_vel_sum / safe_counts[:, None], 0.0)
 
     neighbor_pos_sum = np.where(
         perception_mask[:, :, None], positions[None, :, :], 0.0
     ).sum(axis=1)
     avg_pos = neighbor_pos_sum / safe_counts[:, None]
-    cohesion = np.where(counts[:, None] > 0, avg_pos - positions, 0.0)
+    cohesion = np.where(has_neighbors[:, None], avg_pos - positions, 0.0)
 
-    accel = (
+    separation = _limit(separation, max_force)
+    alignment = _limit(alignment, max_force)
+    cohesion = _limit(cohesion, max_force)
+
+    return (
         separation * weight_separation
         + alignment * weight_alignment
         + cohesion * weight_cohesion
     )
 
-    mags = np.linalg.norm(accel, axis=1)
-    too_strong = mags > max_force
+
+def _limit(vectors, max_magnitude):
+    mags = np.linalg.norm(vectors, axis=1)
+    too_strong = mags > max_magnitude
     if np.any(too_strong):
-        accel[too_strong] *= (max_force / mags[too_strong])[:, None]
-    return accel
+        vectors[too_strong] *= (max_magnitude / mags[too_strong])[:, None]
+    return vectors
