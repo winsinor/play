@@ -52,6 +52,10 @@ By default the app also serves an MJPEG preview of whatever's on screen at
 rate live (no restart needed) -- handy for checking a headless Pi from a
 laptop or phone on the same network. Pass `--no-stream` to disable it.
 
+The page also has prev/next buttons that enqueue real navigation events into
+the running app (the same path a touchscreen swipe takes), so you can drive
+the demo rotation remotely too, not just watch it.
+
 ## Adding a new demo
 
 1. Add `display/demos/your_thing.py` implementing the `Demo` interface in

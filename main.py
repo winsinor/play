@@ -61,12 +61,6 @@ def main(argv=None):
     manager = DemoManager([demo_cls() for demo_cls in ALL_DEMOS])
     manager.setup(screen.get_size())
 
-    streamer = None
-    if not args.no_stream:
-        streamer = FrameStreamer(config.STREAM_DEFAULT_FPS)
-        start_server(streamer, config.STREAM_PORT)
-        print(f"==> Preview stream: http://<this-device-ip>:{config.STREAM_PORT}/")
-
     input_queue = queue.Queue()
     touch_thread = TouchInputThread(
         input_queue,
@@ -76,6 +70,12 @@ def main(argv=None):
         long_press_min_duration=config.LONG_PRESS_MIN_DURATION,
     )
     touch_thread.start()
+
+    streamer = None
+    if not args.no_stream:
+        streamer = FrameStreamer(config.STREAM_DEFAULT_FPS, rotate_degrees=config.STREAM_ROTATE_DEGREES)
+        start_server(streamer, config.STREAM_PORT, nav_queue=input_queue)
+        print(f"==> Preview stream: http://<this-device-ip>:{config.STREAM_PORT}/")
 
     clock = pygame.time.Clock()
     frame_count = 0

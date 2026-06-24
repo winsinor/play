@@ -8,3 +8,10 @@ LONG_PRESS_MIN_DURATION = 0.6
 
 STREAM_PORT = 8000
 STREAM_DEFAULT_FPS = 6
+# The physical HyperPixel rotation is handled entirely by the KMS
+# dtparam=rotate boot config (see docs/pi-setup.md) and never touches the
+# pygame surface -- so the raw frame grabbed for the web preview is in the
+# *unrotated* logical orientation. Rotate it here purely for the preview
+# image (pygame.transform.rotate, counterclockwise); if it comes out the
+# wrong way, try -90 instead.
+STREAM_ROTATE_DEGREES = 90
