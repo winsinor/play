@@ -56,6 +56,13 @@ The page also has prev/next buttons that enqueue real navigation events into
 the running app (the same path a touchscreen swipe takes), so you can drive
 the demo rotation remotely too, not just watch it.
 
+There's also an "Update from GitHub" button that runs `git pull` on the
+branch currently checked out and restarts. It never needs sudo: it just
+exits, and relies on the systemd service's `Restart=always` to bring it back
+up with the new code (see `setup/pi-display.service`). Outside the service —
+e.g. running `python3 main.py` by hand — the pull still happens but nothing
+restarts it afterwards.
+
 ## Adding a new demo
 
 1. Add `display/demos/your_thing.py` implementing the `Demo` interface in

@@ -104,6 +104,12 @@ EGL backend auto-detection failing in this headless setup.)
 
 Ctrl-C to stop, then `sudo systemctl start pi-display` when you're done.
 
+The remote preview page (see README's "Remote preview" section) also has an
+"Update from GitHub" button that pulls and restarts without needing SSH —
+but it only self-restarts when running under the `pi-display` service
+(`Restart=always`); running by hand, the pull happens but you'll need to
+restart `main.py` yourself.
+
 To test logic changes without the Pi at all, run windowed on any machine with
 pygame installed (use a venv there too if your OS enforces PEP 668):
 
