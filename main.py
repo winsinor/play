@@ -45,12 +45,12 @@ def main(argv=None):
     configure_video_driver(args.windowed)
 
     pygame.init()
-    pygame.mouse.set_visible(False)
 
     # On the Pi, kmsdrm always renders fullscreen at the display's native
     # resolution -- no extra fullscreen flag needed.
     screen = pygame.display.set_mode(config.SCREEN_SIZE)
     pygame.display.set_caption("Idle Display")
+    pygame.mouse.set_visible(False)
 
     manager = DemoManager([demo_cls() for demo_cls in ALL_DEMOS], config.AUTO_ADVANCE_SECONDS)
     manager.setup(screen.get_size())
