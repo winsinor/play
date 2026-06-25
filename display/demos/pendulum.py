@@ -55,12 +55,15 @@ class DoublePendulumDemo(Demo):
         return dict(l1=self.l1, l2=self.l2, m1=self.m1, m2=self.m2, g=self.GRAVITY)
 
     def _reset_default(self):
-        # A dramatic release: each arm flung out somewhere between horizontal
-        # and nearly-upright, on a random side, so every reset is a different
-        # chaotic run rather than the same trajectory.
-        a1 = random.uniform(math.pi * 0.45, math.pi * 0.9) * random.choice((-1, 1))
-        a2 = random.uniform(math.pi * 0.45, math.pi * 0.9) * random.choice((-1, 1))
-        self.state = np.array([a1, 0.0, a2, 0.0])
+        # Release the whole pendulum straight (both arms at the same angle)
+        # from rest at a random position, like actually dropping it -- giving
+        # each arm an independent random angle instead stores uneven
+        # potential energy right at the start, so the coupling yanks bob1
+        # into an immediate, unnatural-looking kick rather than a smooth
+        # fall. Starting aligned still diverges into the usual chaos within a
+        # second or two, just gradually, driven by gravity/momentum alone.
+        theta = random.uniform(math.pi * 0.45, math.pi * 0.9) * random.choice((-1, 1))
+        self.state = np.array([theta, 0.0, theta, 0.0])
         self.trail.clear()
         self._accum = 0.0
 
