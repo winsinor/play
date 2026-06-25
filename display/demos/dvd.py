@@ -1,4 +1,4 @@
-import math
+import colorsys
 import random
 from pathlib import Path
 
@@ -31,7 +31,9 @@ COLORS = [
 CORNER_PERIOD = 60.0
 AXIS_TOUCHES_PER_PERIOD = (20, 23)  # (x, y) -- must be coprime
 
-CORNER_FLASH_DURATION = 0.6
+# On a corner hit, the logo cycles once through the rainbow over this many
+# seconds before settling into the next color it would have picked anyway.
+CORNER_FLASH_DURATION = 1.5
 BG_COLOR = (8, 8, 14)
 
 
@@ -53,6 +55,7 @@ class DvdDemo(Demo):
         self.prev_touch_count_x = 0
         self.prev_touch_count_y = 0
         self.flash_timer = 0.0
+        self.next_color = self.color
 
     def handle_event(self, event):
         pass
@@ -72,11 +75,15 @@ class DvdDemo(Demo):
 
         if touched_x and touched_y:
             self.flash_timer = CORNER_FLASH_DURATION
-            self._recolor()
+            self.next_color = random.choice([c for c in COLORS if c != self.color])
         elif touched_x or touched_y:
             self._recolor()
 
-        self.flash_timer = max(0.0, self.flash_timer - dt)
+        if self.flash_timer > 0:
+            self.flash_timer = max(0.0, self.flash_timer - dt)
+            if self.flash_timer == 0.0:
+                self.color = self.next_color
+                self.logo = _render_logo(self.color)
 
     def _recolor(self):
         self.color = random.choice([c for c in COLORS if c != self.color])
@@ -85,32 +92,16 @@ class DvdDemo(Demo):
     def draw(self, surface):
         surface.fill(BG_COLOR)
         x, y = self.pos
-        center = (x + self.logo.get_width() / 2, y + self.logo.get_height() / 2)
 
         if self.flash_timer > 0:
             progress = 1.0 - self.flash_timer / CORNER_FLASH_DURATION
-            self._draw_corner_flash(surface, center, progress)
-            scale = 1.0 + 0.4 * math.sin(progress * math.pi)
-            logo = pygame.transform.smoothscale(
-                self.logo,
-                (int(self.logo.get_width() * scale), int(self.logo.get_height() * scale)),
-            )
-            blit_pos = (center[0] - logo.get_width() / 2, center[1] - logo.get_height() / 2)
+            hue = progress % 1.0
+            r, g, b = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
+            logo = _render_logo((int(r * 255), int(g * 255), int(b * 255)))
         else:
             logo = self.logo
-            blit_pos = (x, y)
 
-        surface.blit(logo, blit_pos)
-
-    def _draw_corner_flash(self, surface, center, progress):
-        max_radius = max(self.logo.get_width(), self.logo.get_height()) * 1.6
-        radius = int(max_radius * progress)
-        alpha = int(255 * (1.0 - progress))
-        if radius <= 0 or alpha <= 0:
-            return
-        ring = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
-        pygame.draw.circle(ring, (*self.color, alpha), (radius, radius), radius, width=4)
-        surface.blit(ring, (center[0] - radius, center[1] - radius))
+        surface.blit(logo, (x, y))
 
 
 def bounce_position(t, half_period, span):
