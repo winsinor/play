@@ -8,6 +8,8 @@ from display.demos.base import Demo
 
 LOGO_ASSET_PATH = Path(__file__).resolve().parent.parent.parent / "assets" / "dvd_logo.png"
 LOGO_WIDTH = 160  # display width in pixels; height follows the source image's aspect ratio
+LOGO_ROTATION_DEGREES = 90  # fixed rotation applied once at load time, not animated --
+# if it ends up rotated the wrong way, try -90 instead.
 
 COLORS = [
     (230, 60, 60),
@@ -133,7 +135,8 @@ def _load_base_logo():
         image = pygame.image.load(str(LOGO_ASSET_PATH)).convert_alpha()
         aspect = image.get_height() / image.get_width()
         size = (LOGO_WIDTH, round(LOGO_WIDTH * aspect))
-        _base_logo = pygame.transform.smoothscale(image, size)
+        scaled = pygame.transform.smoothscale(image, size)
+        _base_logo = pygame.transform.rotate(scaled, LOGO_ROTATION_DEGREES)
     return _base_logo
 
 
