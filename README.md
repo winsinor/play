@@ -47,10 +47,13 @@ config, and installing it as an auto-starting systemd service.
 
 ## Remote preview
 
-By default the app also serves an MJPEG preview of whatever's on screen at
-`http://<device-ip>:8000/`, with a slider on that page to adjust the stream
-rate live (no restart needed) -- handy for checking a headless Pi from a
-laptop or phone on the same network. Pass `--no-stream` to disable it.
+By default the app also serves a small web page at `http://<device-ip>:8000/`
+with a "Capture frame" button that grabs a single snapshot of whatever's on
+screen right now -- handy for checking a headless Pi from a laptop or phone on
+the same network. It deliberately does *not* stream continuously: a frame is
+only captured (and JPEG-encoded) when you press the button, so the render loop
+stays free and there's no always-on per-frame work. Pass `--no-stream` to
+disable the page entirely.
 
 The page also has prev/next buttons that enqueue real navigation events into
 the running app (the same path a touchscreen swipe takes), so you can drive

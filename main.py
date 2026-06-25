@@ -14,7 +14,7 @@ from display import config
 from display.demos import ALL_DEMOS
 from display.input_touch import TouchInputThread
 from display.manager import DemoManager, NavEvent
-from display.streaming import FrameStreamer, start_server
+from display.streaming import FrameCapture, start_server
 
 
 def parse_args(argv=None):
@@ -33,7 +33,7 @@ def parse_args(argv=None):
     parser.add_argument(
         "--no-stream",
         action="store_true",
-        help="don't serve the live display preview over HTTP",
+        help="don't serve the on-demand web preview over HTTP",
     )
     parser.add_argument(
         "--show-fps",
@@ -76,11 +76,12 @@ def main(argv=None):
     )
     touch_thread.start()
 
-    streamer = None
+    capture = None
     if not args.no_stream:
-        streamer = FrameStreamer(config.STREAM_DEFAULT_FPS, rotate_degrees=config.STREAM_ROTATE_DEGREES)
-        start_server(streamer, config.STREAM_PORT, nav_queue=input_queue)
-        print(f"==> Preview stream: http://<this-device-ip>:{config.STREAM_PORT}/")
+        capture = FrameCapture(rotate_degrees=config.STREAM_ROTATE_DEGREES)
+        start_server(capture, config.STREAM_PORT, nav_queue=input_queue)
+        capture.set_source(screen)
+        print(f"==> Web preview: http://<this-device-ip>:{config.STREAM_PORT}/")
 
     clock = pygame.time.Clock()
     frame_count = 0
@@ -119,8 +120,11 @@ def main(argv=None):
         manager.draw(screen)
         pygame.display.flip()
 
-        if streamer is not None:
-            streamer.update_frame(screen)
+        if capture is not None:
+            # Cheap no-op unless the web page has asked for a frame; the
+            # encode (if any) happens here on the main thread so it never
+            # races the renderer touching the same surface.
+            capture.service_pending()
 
         frame_count += 1
         if args.max_frames is not None and frame_count >= args.max_frames:
