@@ -8,8 +8,7 @@ from display.demos.base import Demo
 
 LOGO_ASSET_PATH = Path(__file__).resolve().parent.parent.parent / "assets" / "dvd_logo.png"
 LOGO_WIDTH = 160  # display width in pixels; height follows the source image's aspect ratio
-LOGO_ROTATION_DEGREES = 90  # fixed rotation applied once at load time, not animated --
-# if it ends up rotated the wrong way, try -90 instead.
+LOGO_ROTATION_DEGREES = 270  # fixed rotation applied once at load time, not animated
 
 COLORS = [
     (230, 60, 60),
