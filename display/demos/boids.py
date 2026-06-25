@@ -4,6 +4,10 @@ import pygame
 from display.demos.base import Demo
 from display.manager import LongPressEvent, TapEvent
 
+# See compute_flock_acceleration's docstring/comments for why separation needs
+# its own pixel-scale factor (distinct from perception_radius itself).
+SEPARATION_RANGE_SCALE = 0.5
+
 
 class BoidsDemo(Demo):
     NUM_BOIDS = 120
@@ -151,22 +155,25 @@ def compute_flock_acceleration(
     safe_counts = np.where(counts > 0, counts, 1)
     has_neighbors = counts > 0
 
-    # Unit direction away from each neighbor, scaled by perception_radius/distance
+    # Unit direction away from each neighbor, scaled by ~perception_radius/distance
     # -- clamped to a minimum distance so it caps at a strong-but-finite push
     # instead of blowing up (or, if the *unclamped* raw diff vector were
     # divided by dist_sq instead, actually weakening back toward zero) as
-    # boids approach full overlap. The perception_radius factor matters: cohesion
-    # and alignment both operate directly in pixel-distance units, so a bare
-    # 1/distance separation (fractions well under 1) is utterly dwarfed by
-    # them regardless of weight -- multiplying back up by perception_radius
-    # brings separation into the same pixel-scale ballpark.
+    # boids approach full overlap. The perception_radius factor matters:
+    # cohesion and alignment both operate directly in pixel-distance units, so
+    # a bare 1/distance separation (fractions well under 1) is utterly
+    # dwarfed by them regardless of weight. SEPARATION_RANGE_SCALE further
+    # tones that down -- the full perception_radius scale spreads the flock
+    # out too loosely (~100px of slack between neighbors); half of it keeps
+    # a visibly tighter flock without re-collapsing it.
     dist = np.sqrt(dist_sq)
     unit_diffs = diffs / np.maximum(dist, 1e-6)[:, :, None]
     min_dist = perception_radius * min_separation_fraction
     effective_dist = np.maximum(dist, min_dist)
+    separation_range = perception_radius * SEPARATION_RANGE_SCALE
     sep_vectors = np.where(
         perception_mask[:, :, None],
-        unit_diffs * (perception_radius / effective_dist)[:, :, None],
+        unit_diffs * (separation_range / effective_dist)[:, :, None],
         0.0,
     )
     separation = sep_vectors.sum(axis=1)
