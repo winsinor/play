@@ -151,9 +151,18 @@ def compute_flock_acceleration(
     safe_counts = np.where(counts > 0, counts, 1)
     has_neighbors = counts > 0
 
-    min_dist_sq = (perception_radius * min_separation_fraction) ** 2
-    safe_dist_sq = np.maximum(dist_sq, min_dist_sq)
-    sep_vectors = np.where(perception_mask[:, :, None], diffs / safe_dist_sq[:, :, None], 0.0)
+    # Unit direction away from each neighbor, scaled by 1/distance -- clamped
+    # to a minimum distance so it caps at a strong-but-finite push instead of
+    # blowing up (or, if the *unclamped* raw diff vector were divided by
+    # dist_sq instead, actually weakening back toward zero) as boids approach
+    # full overlap.
+    dist = np.sqrt(dist_sq)
+    unit_diffs = diffs / np.maximum(dist, 1e-6)[:, :, None]
+    min_dist = perception_radius * min_separation_fraction
+    effective_dist = np.maximum(dist, min_dist)
+    sep_vectors = np.where(
+        perception_mask[:, :, None], unit_diffs / effective_dist[:, :, None], 0.0
+    )
     separation = sep_vectors.sum(axis=1)
 
     neighbor_vel_sum = np.where(

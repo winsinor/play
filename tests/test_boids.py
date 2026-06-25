@@ -62,6 +62,28 @@ def test_no_neighbors_means_no_acceleration():
     assert np.allclose(accel, 0.0)
 
 
+def test_separation_strength_never_weakens_as_boids_get_closer():
+    # Regression test: separation must stay at least as strong as boids
+    # approach full overlap. A naive diffs/dist_sq formula divided by a
+    # *clamped* dist_sq (rather than normalizing direction first) lets the
+    # numerator's distance shrink toward 0 while the clamped denominator
+    # stays fixed, so the force weakens back to 0 right when boids need it
+    # most -- which is how they end up merging into a single blob.
+    perception_radius = 10.0
+    distances = [5.0, 1.0, 0.5, 0.1, 0.01]  # min_dist is 0.05 * 10 = 0.5
+    mags = []
+    for d in distances:
+        accel = _accel(
+            [[0.0, 0.0], [d, 0.0]],
+            [[0.0, 0.0], [0.0, 0.0]],
+            perception_radius=perception_radius,
+            max_force=1e9,
+        )
+        mags.append(np.linalg.norm(accel[0]))
+    for closer, farther in zip(mags[1:], mags[:-1]):
+        assert closer >= farther - 1e-9
+
+
 def test_max_force_clamps_each_behavior_before_weighting():
     # Four close boids -> a large raw separation vector for the boid at the
     # origin. With weight_separation > 1, the *weighted* result can exceed
