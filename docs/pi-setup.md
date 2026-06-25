@@ -104,6 +104,12 @@ EGL backend auto-detection failing in this headless setup.)
 
 Ctrl-C to stop, then `sudo systemctl start pi-display` when you're done.
 
+Add `--show-fps` to print the actual achieved frame rate once a second --
+useful for checking whether a demo (boids in particular, since it draws each
+boid with its own `pygame.draw.polygon` call rather than a vectorized blit)
+is keeping up with `config.FPS` on the Pi's actual CPU, not just on a dev
+machine.
+
 The remote preview page (see README's "Remote preview" section) also has an
 "Update from GitHub" button that pulls and restarts without needing SSH —
 but it only self-restarts when running under the `pi-display` service

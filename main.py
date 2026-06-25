@@ -35,6 +35,11 @@ def parse_args(argv=None):
         action="store_true",
         help="don't serve the live display preview over HTTP",
     )
+    parser.add_argument(
+        "--show-fps",
+        action="store_true",
+        help="print the actual achieved frame rate to stdout once a second",
+    )
     return parser.parse_args(argv)
 
 
@@ -79,10 +84,17 @@ def main(argv=None):
 
     clock = pygame.time.Clock()
     frame_count = 0
+    fps_log_timer = 0.0
     running = True
 
     while running:
         dt = clock.tick(config.FPS) / 1000.0
+
+        if args.show_fps:
+            fps_log_timer += dt
+            if fps_log_timer >= 1.0:
+                fps_log_timer = 0.0
+                print(f"[fps] {clock.get_fps():.1f} (target {config.FPS})")
 
         while not input_queue.empty():
             input_event = input_queue.get_nowait()
