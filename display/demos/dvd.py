@@ -20,9 +20,11 @@ COLORS = [
 # period. With these, the logo's x and y positions are exactly commensurate
 # (see bounce_position), so they line up at a wall *simultaneously* -- a
 # corner hit -- once every CORNER_PERIOD seconds, by construction rather than
-# by chance. Non-corner wall bounces happen in between.
-CORNER_PERIOD = 6.0
-AXIS_TOUCHES_PER_PERIOD = (2, 3)  # (x, y) -- must be coprime
+# by chance. Non-corner wall bounces happen in between. (20, 23) keeps the
+# per-axis speed close to a smaller, more frequent-feeling pair like (2, 3)
+# while pushing the corner-hit period itself out to roughly once a minute.
+CORNER_PERIOD = 60.0
+AXIS_TOUCHES_PER_PERIOD = (20, 23)  # (x, y) -- must be coprime
 
 CORNER_FLASH_DURATION = 0.6
 BG_COLOR = (8, 8, 14)
@@ -120,4 +122,5 @@ def bounce_position(t, half_period, span):
 
 def _render_logo(color):
     font = pygame.font.SysFont(None, 90, bold=True)
-    return font.render("DVD", True, color)
+    text = font.render("DVD", True, color)
+    return pygame.transform.rotate(text, -90)  # negative = clockwise
