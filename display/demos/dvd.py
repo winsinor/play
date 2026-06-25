@@ -1,9 +1,13 @@
 import math
 import random
+from pathlib import Path
 
 import pygame
 
 from display.demos.base import Demo
+
+LOGO_ASSET_PATH = Path(__file__).resolve().parent.parent.parent / "assets" / "dvd_logo.png"
+LOGO_WIDTH = 160  # display width in pixels; height follows the source image's aspect ratio
 
 COLORS = [
     (230, 60, 60),
@@ -120,7 +124,29 @@ def bounce_position(t, half_period, span):
     return (1 - (phase - half_period) / half_period) * span
 
 
+_base_logo = None  # lazily loaded -- needs pygame initialized, so not at import time
+
+
+def _load_base_logo():
+    global _base_logo
+    if _base_logo is None:
+        image = pygame.image.load(str(LOGO_ASSET_PATH)).convert_alpha()
+        aspect = image.get_height() / image.get_width()
+        size = (LOGO_WIDTH, round(LOGO_WIDTH * aspect))
+        _base_logo = pygame.transform.smoothscale(image, size)
+    return _base_logo
+
+
 def _render_logo(color):
-    font = pygame.font.SysFont(None, 90, bold=True)
-    text = font.render("DVD", True, color)
-    return pygame.transform.rotate(text, -90)  # negative = clockwise
+    # The source asset is solid black (with anti-aliased alpha edges) on a
+    # transparent background, so recoloring means filling a same-size
+    # surface with the target color and copying over the source's alpha
+    # channel -- preserves the anti-aliasing exactly, unlike a flat
+    # BLEND_RGBA_MULT tint (which can't brighten black pixels at all).
+    base = _load_base_logo()
+    tinted = pygame.Surface(base.get_size(), pygame.SRCALPHA)
+    tinted.fill((*color, 255))
+    alpha = pygame.surfarray.pixels_alpha(tinted)
+    alpha[:] = pygame.surfarray.array_alpha(base)
+    del alpha
+    return tinted
