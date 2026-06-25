@@ -1,5 +1,8 @@
 import enum
+import logging
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 class NavEvent(enum.Enum):
@@ -48,8 +51,34 @@ class DemoManager:
         self.index = (self.index + step) % len(self.demos)
         self.current.setup(self.screen_size)
 
+    def handle_event(self, event):
+        self._guard(self.current.handle_event, event)
+
+    def handle_touch(self, event):
+        self._guard(self.current.handle_touch, event)
+
     def update(self, dt):
-        self.current.update(dt)
+        self._guard(self.current.update, dt)
 
     def draw(self, surface):
-        self.current.draw(surface)
+        self._guard(self.current.draw, surface)
+
+    def _guard(self, method, *args):
+        # No demo's update/draw/event handling is allowed to take the whole
+        # app down -- a single bad frame resets just that demo (or, failing
+        # that, advances past it) instead of crashing the process.
+        demo_name = type(self.current).__name__
+        try:
+            method(*args)
+        except Exception:
+            logger.exception("%s failed in %s(); resetting it", demo_name, method.__name__)
+            self._recover_current()
+
+    def _recover_current(self):
+        try:
+            self.current.setup(self.screen_size)
+        except Exception:
+            logger.exception(
+                "%s failed to reset; advancing to next demo", type(self.current).__name__
+            )
+            self._switch(1)

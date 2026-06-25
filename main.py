@@ -102,7 +102,7 @@ def main(argv=None):
             if isinstance(input_event, NavEvent):
                 manager.handle_nav(input_event)
             else:
-                manager.current.handle_touch(input_event)
+                manager.handle_touch(input_event)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -114,7 +114,7 @@ def main(argv=None):
                     manager.handle_nav(NavEvent.NEXT)
                 elif event.key == pygame.K_LEFT:
                     manager.handle_nav(NavEvent.PREV)
-            manager.current.handle_event(event)
+            manager.handle_event(event)
 
         manager.update(dt)
         manager.draw(screen)

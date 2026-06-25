@@ -28,6 +28,12 @@ MIN_SCALE = 1e-4
 # gradient (the fractal's boundary) instead of a fixed point, so it never just
 # zooms straight into a featureless black (interior) or white (escaped) area.
 CENTER_DRIFT = 0.12
+# Near thin filament structure, the raw per-frame argmax target itself can
+# jump discretely between adjacent frames (a different pixel just barely wins
+# the gradient race) -- this EMA smooths *that* out before CENTER_DRIFT ever
+# chases it, which is a separate, independent source of jitter from drift
+# speed itself.
+TARGET_SMOOTHING = 0.2
 BOUNDARY_SEARCH_MARGIN = 0.25  # only look within the central 50% of the view
 MIN_GRADIENT = 1.5  # below this the view is too featureless to chase a boundary
 
@@ -43,6 +49,8 @@ class FractalDemo(Demo):
         self.scale = RESET_SCALE
         self.hue_shift = 0.0
         self._iterations = None
+        self.smoothed_target_x = None
+        self.smoothed_target_y = None
 
     def handle_event(self, event):
         pass
@@ -64,8 +72,21 @@ class FractalDemo(Demo):
             return
 
         target_x, target_y = target
-        self.center_x += (target_x - self.center_x) * CENTER_DRIFT
-        self.center_y += (target_y - self.center_y) * CENTER_DRIFT
+        if self.smoothed_target_x is None:
+            self.smoothed_target_x, self.smoothed_target_y = target_x, target_y
+        else:
+            target_fraction = 1.0 - (1.0 - TARGET_SMOOTHING) ** (dt * 30)
+            self.smoothed_target_x += (target_x - self.smoothed_target_x) * target_fraction
+            self.smoothed_target_y += (target_y - self.smoothed_target_y) * target_fraction
+
+        # CENTER_DRIFT/TARGET_SMOOTHING are tuned as "fraction of the gap
+        # closed per 1/30s tick" (matching ZOOM_RATE's per-tick convention
+        # below), so dt-scale them the same way -- otherwise a slow frame
+        # applies the same fixed-size jump regardless of how much real time
+        # passed, which reads as the view snapping around faster than normal.
+        drift_fraction = 1.0 - (1.0 - CENTER_DRIFT) ** (dt * 30)
+        self.center_x += (self.smoothed_target_x - self.center_x) * drift_fraction
+        self.center_y += (self.smoothed_target_y - self.center_y) * drift_fraction
 
         self.scale /= ZOOM_RATE ** (dt * 30)
         self.hue_shift = (self.hue_shift + dt * 12) % 360

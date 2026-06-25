@@ -34,9 +34,9 @@ def test_choose_next_move_falls_back_to_cycle_when_space_is_tight():
     cycle_index = {cell: i for i, cell in enumerate(cycle)}
     cycle_next = {cell: cycle[(i + 1) % len(cycle)] for i, cell in enumerate(cycle)}
     head = cycle[0]
-    tail = cycle[-10]
+    tail = cycle[-11]
     food = cycle[5]
-    occupied = set(cycle[-10:])  # snake fills most of the board -> low free space
+    occupied = set(cycle[-11:])  # snake fills most of the board -> low free space
     move = choose_next_move(
         head, tail, food, occupied, cycle_index, cycle_next, len(cycle), len(occupied)
     )

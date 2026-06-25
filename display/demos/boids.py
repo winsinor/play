@@ -11,6 +11,10 @@ SEPARATION_RANGE_SCALE = 0.5
 
 class BoidsDemo(Demo):
     NUM_BOIDS = 120
+    # Tapping repeatedly grows the flock via _add_boid; this caps how large it
+    # can get so the O(n^2) flocking computation (compute_flock_acceleration)
+    # never grows unbounded with tap count.
+    MAX_BOIDS = 220
     MAX_SPEED = 190.0
     MAX_FORCE = 400.0
     # Perception scales with screen size rather than being a fixed pixel
@@ -54,6 +58,8 @@ class BoidsDemo(Demo):
             self._spawn_random(self.NUM_BOIDS)
 
     def _add_boid(self, x, y):
+        if len(self.positions) >= self.MAX_BOIDS:
+            return
         rng = np.random.default_rng()
         angle = rng.uniform(0, 2 * np.pi)
         velocity = np.array([np.cos(angle), np.sin(angle)]) * self.MAX_SPEED * 0.5

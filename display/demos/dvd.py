@@ -31,9 +31,12 @@ COLORS = [
 CORNER_PERIOD = 60.0
 AXIS_TOUCHES_PER_PERIOD = (20, 23)  # (x, y) -- must be coprime
 
-# On a corner hit, the logo cycles once through the rainbow over this many
-# seconds before settling into the next color it would have picked anyway.
+# On a corner hit, the logo enters an open-ended rainbow cycle (rather than a
+# fixed-duration flash) that keeps going until the next single-wall edge hit.
+# CORNER_FLASH_DURATION is kept only as the basis for the cycle rate -- this
+# is 2x the rate a one-shot cycle over that duration would have implied.
 CORNER_FLASH_DURATION = 1.5
+CORNER_RAINBOW_HZ = 2.0 / CORNER_FLASH_DURATION
 BG_COLOR = (8, 8, 14)
 
 
@@ -54,8 +57,8 @@ class DvdDemo(Demo):
         self.elapsed = 0.0
         self.prev_touch_count_x = 0
         self.prev_touch_count_y = 0
-        self.flash_timer = 0.0
-        self.next_color = self.color
+        self.rainbow_mode = False
+        self.rainbow_hue = 0.0
 
     def handle_event(self, event):
         pass
@@ -74,16 +77,14 @@ class DvdDemo(Demo):
         self.prev_touch_count_y = touch_count_y
 
         if touched_x and touched_y:
-            self.flash_timer = CORNER_FLASH_DURATION
-            self.next_color = random.choice([c for c in COLORS if c != self.color])
+            self.rainbow_mode = True
+            self.rainbow_hue = 0.0
         elif touched_x or touched_y:
+            self.rainbow_mode = False
             self._recolor()
 
-        if self.flash_timer > 0:
-            self.flash_timer = max(0.0, self.flash_timer - dt)
-            if self.flash_timer == 0.0:
-                self.color = self.next_color
-                self.logo = _render_logo(self.color)
+        if self.rainbow_mode:
+            self.rainbow_hue = (self.rainbow_hue + dt * CORNER_RAINBOW_HZ) % 1.0
 
     def _recolor(self):
         self.color = random.choice([c for c in COLORS if c != self.color])
@@ -93,10 +94,8 @@ class DvdDemo(Demo):
         surface.fill(BG_COLOR)
         x, y = self.pos
 
-        if self.flash_timer > 0:
-            progress = 1.0 - self.flash_timer / CORNER_FLASH_DURATION
-            hue = progress % 1.0
-            r, g, b = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
+        if self.rainbow_mode:
+            r, g, b = colorsys.hsv_to_rgb(self.rainbow_hue, 1.0, 1.0)
             logo = _render_logo((int(r * 255), int(g * 255), int(b * 255)))
         else:
             logo = self.logo

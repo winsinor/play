@@ -1,4 +1,6 @@
+import colorsys
 import math
+from collections import deque
 
 import numpy as np
 import pygame
@@ -8,7 +10,9 @@ from display.manager import LongPressEvent, TapEvent
 
 BG_COLOR = (8, 8, 16)
 STAR_COLOR = (255, 225, 140)
-ORBITER_COLOR = (120, 175, 255)
+# Trails fade from this fraction of a planet's own color (near-black but not
+# quite, so they stay visible against BG_COLOR) up to its full color.
+TRAIL_DARK_FRACTION = 0.15
 
 
 class NBodyDemo(Demo):
@@ -20,7 +24,9 @@ class NBodyDemo(Demo):
     # Softens the 1/r^2 force so it stays finite as bodies pass close to each
     # other, instead of flinging them out at near-infinite speed.
     SOFTENING = 15.0
-    STAR_MASS = 4000.0
+    # Heavy enough that the momentum a tapped-in body imparts barely moves it
+    # even before the momentum-conserving kick in _add_body is applied.
+    STAR_MASS = 8000.0
     ORBITER_MASS = 30.0
     TAP_BODY_MASS = 50.0
     NUM_INITIAL_ORBITERS = 4
@@ -33,6 +39,7 @@ class NBodyDemo(Demo):
     RADIUS_SCALE = 2.2
     MIN_DRAW_RADIUS = 3
     MAX_DRAW_RADIUS = 18
+    TRAIL_LENGTH = 90  # ~1.5s at 60fps
 
     def setup(self, screen_size):
         self.width, self.height = screen_size
@@ -43,6 +50,9 @@ class NBodyDemo(Demo):
         self.positions = np.array([[cx, cy]], dtype=float)
         self.velocities = np.array([[0.0, 0.0]])
         self.masses = np.array([self.STAR_MASS])
+        self.colors = [STAR_COLOR]
+        self.trails = [deque(maxlen=self.TRAIL_LENGTH)]
+        self._next_color_index = 0
 
         rng = np.random.default_rng()
         min_dim = min(self.width, self.height)
@@ -59,6 +69,12 @@ class NBodyDemo(Demo):
             self.positions = np.vstack([self.positions, pos])
             self.velocities = np.vstack([self.velocities, velocity])
             self.masses = np.append(self.masses, self.ORBITER_MASS)
+            self._add_color_and_trail()
+
+    def _add_color_and_trail(self):
+        self.colors.append(_planet_color(self._next_color_index))
+        self.trails.append(deque(maxlen=self.TRAIL_LENGTH))
+        self._next_color_index += 1
 
     def handle_event(self, event):
         pass
@@ -83,10 +99,20 @@ class NBodyDemo(Demo):
         direction = offset / r
         tangential = np.array([-direction[1], direction[0]])
         speed = math.sqrt(self.G * star_mass / r)
+        new_velocity = tangential * speed
+
+        # Conserve momentum: the new body's momentum must be balanced by an
+        # equal-and-opposite kick to the star, otherwise every tap injects
+        # net momentum into the system and the star (which dominates the
+        # system's center of mass) drifts further off-screen with every tap.
+        self.velocities[star_idx] = (
+            self.velocities[star_idx] - (self.TAP_BODY_MASS * new_velocity) / star_mass
+        )
 
         self.positions = np.vstack([self.positions, [float(x), float(y)]])
-        self.velocities = np.vstack([self.velocities, tangential * speed])
+        self.velocities = np.vstack([self.velocities, new_velocity])
         self.masses = np.append(self.masses, self.TAP_BODY_MASS)
+        self._add_color_and_trail()
 
     def update(self, dt):
         if len(self.masses) == 0:
@@ -98,7 +124,14 @@ class NBodyDemo(Demo):
         )
         self.velocities = self.velocities + accel * dt
         self.positions = self.positions + self.velocities * dt
+        self._update_trails()
         self._cull_escaped_bodies()
+
+    def _update_trails(self):
+        star_mass = self.masses.max() if len(self.masses) else 0.0
+        for i, (pos, mass) in enumerate(zip(self.positions, self.masses)):
+            if mass < star_mass * 0.5:
+                self.trails[i].append((float(pos[0]), float(pos[1])))
 
     def _cull_escaped_bodies(self):
         cx, cy = self.width / 2, self.height / 2
@@ -111,16 +144,50 @@ class NBodyDemo(Demo):
             self.positions = self.positions[within]
             self.velocities = self.velocities[within]
             self.masses = self.masses[within]
+            self.colors = [c for c, keep in zip(self.colors, within) if keep]
+            self.trails = [t for t, keep in zip(self.trails, within) if keep]
 
     def draw(self, surface):
         surface.fill(BG_COLOR)
         star_mass = self.masses.max() if len(self.masses) else 0.0
-        for pos, mass in zip(self.positions, self.masses):
+        for i, (pos, mass) in enumerate(zip(self.positions, self.masses)):
+            is_star = mass >= star_mass * 0.5
+            color = STAR_COLOR if is_star else self.colors[i]
+            if not is_star:
+                _draw_trail(surface, self.trails[i], color)
             radius = int(
                 np.clip(mass ** (1 / 3) * self.RADIUS_SCALE, self.MIN_DRAW_RADIUS, self.MAX_DRAW_RADIUS)
             )
-            color = STAR_COLOR if mass >= star_mass * 0.5 else ORBITER_COLOR
             pygame.draw.circle(surface, color, (int(pos[0]), int(pos[1])), radius)
+
+
+def _planet_color(seed_index):
+    """Deterministic, well-separated hue per index via golden-ratio stepping
+    -- stays visually distinct from its neighbors even as the number of
+    simultaneously-visible planets changes from adds/culls."""
+    hue = (seed_index * 0.61803398875) % 1.0
+    r, g, b = colorsys.hsv_to_rgb(hue, 0.65, 1.0)
+    return (int(r * 255), int(g * 255), int(b * 255))
+
+
+def _draw_trail(surface, trail, color):
+    pts = list(trail)
+    n = len(pts)
+    if n < 2:
+        return
+    dark = tuple(int(c * TRAIL_DARK_FRACTION) for c in color)
+    step = max(1.0, n - 1)
+    for i in range(1, n):
+        line_color = _lerp_color(dark, color, i / step)
+        pygame.draw.line(surface, line_color, pts[i - 1], pts[i], 2)
+
+
+def _lerp_color(c0, c1, t):
+    return (
+        int(c0[0] + (c1[0] - c0[0]) * t),
+        int(c0[1] + (c1[1] - c0[1]) * t),
+        int(c0[2] + (c1[2] - c0[2]) * t),
+    )
 
 
 def compute_gravitational_acceleration(positions, masses, *, g, softening):

@@ -22,6 +22,11 @@ only on demand via keyboard or touchscreen swipe (it never auto-advances).
   through the whole board as a safety net (so it can never trap or crash
   itself), taking greedy shortcuts toward the food whenever there's enough
   free space to do so safely.
+- **Plinko** — a Galton board probability demo: 50-200 balls drop through a
+  peg triangle, each getting an unbiased left/right kick per row, and settle
+  into a bar-chart histogram that approximates a binomial distribution. Tap
+  to skip the post-round pause and start a new round immediately, long-press
+  to reroll at any time.
 
 ## Controls
 

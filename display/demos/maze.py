@@ -22,6 +22,7 @@ OPPOSITE = {"N": "S", "S": "N", "E": "W", "W": "E"}
 class MazeDemo(Demo):
     STEPS_PER_FRAME_GENERATE = 3
     STEPS_PER_FRAME_SOLVE = 4
+    STEPS_PER_FRAME_TRACE = 2
     PAUSE_SECONDS = 2.5
 
     def setup(self, screen_size):
@@ -40,6 +41,8 @@ class MazeDemo(Demo):
         self.solve_path = []
         self.solve_visited = set()
         self.solve_frontier = set()
+        self._final_path = []
+        self._trace_index = 0
         self.pause_timer = 0.0
 
     def handle_event(self, event):
@@ -59,14 +62,24 @@ class MazeDemo(Demo):
             for _ in range(self.STEPS_PER_FRAME_SOLVE):
                 result = next(self._solve_iter, "done")
                 if result == "done":
-                    self.phase = "paused"
-                    self.pause_timer = 0.0
+                    self.phase = "tracing"
+                    self._trace_index = 0
+                    self.solve_path = []
                     break
                 visited_set, frontier_set, path = result
                 self.solve_visited = visited_set
                 self.solve_frontier = frontier_set
                 if path is not None:
-                    self.solve_path = path
+                    self._final_path = path
+
+        elif self.phase == "tracing":
+            self._trace_index = min(
+                len(self._final_path), self._trace_index + self.STEPS_PER_FRAME_TRACE
+            )
+            self.solve_path = self._final_path[: self._trace_index]
+            if self._trace_index >= len(self._final_path):
+                self.phase = "paused"
+                self.pause_timer = 0.0
 
         elif self.phase == "paused":
             self.pause_timer += dt

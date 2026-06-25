@@ -12,7 +12,7 @@ SNAKE_COLOR = (60, 200, 90)
 HEAD_COLOR = (140, 235, 160)
 FOOD_COLOR = (210, 60, 60)
 
-MOVES_PER_SECOND = 14
+MOVES_PER_SECOND = 20
 RESTART_PAUSE_SECONDS = 2.0
 
 # The AI always follows a precomputed Hamiltonian cycle through every cell on
@@ -23,7 +23,7 @@ RESTART_PAUSE_SECONDS = 2.0
 # more natural-looking game. This isn't globally shortest-path optimal --
 # that's intractable in general -- but it is provably safe and will clear the
 # whole board if left running.
-SHORTCUT_FREE_SPACE_FRACTION = 0.5
+SHORTCUT_FREE_SPACE_FRACTION = 0.35
 
 
 class SnakeDemo(Demo):
