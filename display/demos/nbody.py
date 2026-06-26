@@ -26,10 +26,9 @@ class NBodyDemo(Demo):
     SOFTENING = 15.0
     # Heavy enough that the momentum a tapped-in body imparts barely moves it
     # even before the momentum-conserving kick in _add_body is applied.
-    STAR_MASS = 80000.0
-    ORBITER_MASS = 30.0
-    TAP_BODY_MASS_MIN = 20.0
-    TAP_BODY_MASS_MAX = 80.0
+    STAR_MASS = 8000.0
+    PLANET_MASS_MIN = 20.0
+    PLANET_MASS_MAX = 80.0
     NUM_INITIAL_ORBITERS = 4
     MIN_ORBIT_RADIUS = 12.0
     # Bodies more than this many screen-widths/heights from the screen center
@@ -61,6 +60,9 @@ class NBodyDemo(Demo):
             radius = rng.uniform(0.15, 0.35) * min_dim
             angle = rng.uniform(0, 2 * np.pi)
             pos = [cx + radius * math.cos(angle), cy + radius * math.sin(angle)]
+            
+            # Random mass between PLANET_MASS_MIN and PLANET_MASS_MAX
+            planet_mass = rng.uniform(self.PLANET_MASS_MIN, self.PLANET_MASS_MAX)
             speed = math.sqrt(self.G * self.STAR_MASS / radius)
             # Tangential direction (perpendicular to the radius vector),
             # consistently rotated the same way for every orbiter so they all
@@ -69,7 +71,7 @@ class NBodyDemo(Demo):
             velocity = [direction[0] * speed, direction[1] * speed]
             self.positions = np.vstack([self.positions, pos])
             self.velocities = np.vstack([self.velocities, velocity])
-            self.masses = np.append(self.masses, self.ORBITER_MASS)
+            self.masses = np.append(self.masses, planet_mass)
             self._add_color_and_trail()
 
     def _add_color_and_trail(self):
@@ -102,20 +104,20 @@ class NBodyDemo(Demo):
         speed = math.sqrt(self.G * star_mass / r)
         new_velocity = tangential * speed
 
-        # Random mass between TAP_BODY_MASS_MIN and TAP_BODY_MASS_MAX
-        tap_mass = np.random.uniform(self.TAP_BODY_MASS_MIN, self.TAP_BODY_MASS_MAX)
+        # Random mass between PLANET_MASS_MIN and PLANET_MASS_MAX
+        planet_mass = np.random.uniform(self.PLANET_MASS_MIN, self.PLANET_MASS_MAX)
 
         # Conserve momentum: the new body's momentum must be balanced by an
         # equal-and-opposite kick to the star, otherwise every tap injects
         # net momentum into the system and the star (which dominates the
         # system's center of mass) drifts further off-screen with every tap.
         self.velocities[star_idx] = (
-            self.velocities[star_idx] - (tap_mass * new_velocity) / star_mass
+            self.velocities[star_idx] - (planet_mass * new_velocity) / star_mass
         )
 
         self.positions = np.vstack([self.positions, [float(x), float(y)]])
         self.velocities = np.vstack([self.velocities, new_velocity])
-        self.masses = np.append(self.masses, tap_mass)
+        self.masses = np.append(self.masses, planet_mass)
         self._add_color_and_trail()
 
     def update(self, dt):
