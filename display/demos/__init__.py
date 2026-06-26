@@ -7,8 +7,12 @@ from display.demos.snake import SnakeDemo
 from display.demos.life import LifeDemo
 from display.demos.nbody import NBodyDemo
 from display.demos.plinko import PlinkoDemo
+from display.demos.stellar_collision import StellarCollisionDemo
 
 # Order here is the cycle order shown on screen, and the first entry is what
 # comes up on boot. To add a new demo: write a display/demos/<name>.py module
 # with a class implementing display.demos.base.Demo, then add it to this list.
-ALL_DEMOS = [DrawDemo, BoidsDemo, MazeDemo, FractalDemo, DvdDemo, SnakeDemo, LifeDemo, NBodyDemo, PlinkoDemo]
+ALL_DEMOS = [
+    DrawDemo, BoidsDemo, MazeDemo, FractalDemo, DvdDemo, SnakeDemo, LifeDemo, NBodyDemo, PlinkoDemo,
+    StellarCollisionDemo,
+]
