@@ -198,15 +198,20 @@ class NBodyDemo(Demo):
         star_pos = self.positions[star_idx]
         star_mass = self.masses[star_idx]
 
-        offset = np.array([float(x), float(y)]) - star_pos
+        planet_mass = np.random.uniform(self.PLANET_MASS_MIN, self.PLANET_MASS_MAX)
+        # Cleared *before* computing the orbit velocity below, so the speed
+        # matches the radius the body actually ends up at, not the
+        # (possibly nudged-away-from) tapped point.
+        pos = self._clear_spawn_position(np.array([float(x), float(y)]), planet_mass)
+
+        offset = pos - star_pos
         r = max(float(np.linalg.norm(offset)), self.MIN_ORBIT_RADIUS)
         direction = offset / r
         tangential = np.array([-direction[1], direction[0]])
         speed = math.sqrt(self.G * star_mass / r)
         new_velocity = tangential * speed
 
-        planet_mass = np.random.uniform(self.PLANET_MASS_MIN, self.PLANET_MASS_MAX)
-        self._spawn_body([float(x), float(y)], new_velocity, planet_mass)
+        self._spawn_body(pos, new_velocity, planet_mass)
 
     def _launch_body(self, origin, release_point):
         """Resolve a press-drag-release gesture into a new body launched
@@ -220,7 +225,52 @@ class NBodyDemo(Demo):
         speed = min(distance * self.LAUNCH_SPEED_SCALE, self.LAUNCH_MAX_SPEED)
         velocity = -(drag_vector / distance) * speed
         planet_mass = np.random.uniform(self.PLANET_MASS_MIN, self.PLANET_MASS_MAX)
-        self._spawn_body(origin, velocity, planet_mass)
+        pos = self._clear_spawn_position(origin, planet_mass)
+        self._spawn_body(pos, velocity, planet_mass)
+
+    def _clear_spawn_position(self, pos, new_mass):
+        """If pos already overlaps an existing body, push it away (repeating
+        against whichever body is the worst offender) until it doesn't.
+
+        Without this, a burst of taps/launches landing near each other (very
+        normal for "add a lot of planets quickly") spawns bodies already
+        touching, or separated by only a sliver of a gap -- which the very
+        next physics step (or the next handful of them) reads as collisions
+        and merges/shatters away almost everything that was just added in a
+        fast cascade. No state is actually lost or corrupted, but a
+        population crashing from ~100 down to ~30 within a second or two
+        looks exactly like the demo silently resetting.
+
+        Search outward from pos along a golden-angle spiral (the standard
+        even-packing pattern used for things like sunflower seed heads)
+        until a clear spot is found, rather than just nudging away from
+        whichever single body is most in the way -- that left bodies still
+        packed almost edge-to-edge along one line, which collided again
+        within a couple of seconds anyway."""
+        pos = np.asarray(pos, dtype=float)
+        new_radius = float(self._radius_for_mass(new_mass))
+        if not self._overlaps_any_body(pos, new_radius):
+            return pos
+
+        golden_angle = math.pi * (3 - math.sqrt(5))
+        # Generous spacing (not just touching-distance) so spiraled-out
+        # bodies have real room to coexist for more than a couple of frames.
+        step = new_radius * self.PLANET_COLLISION_RADIUS_FRACTION * 3.0
+        candidate = pos
+        for k in range(1, self.MAX_BODIES + 1):
+            radius = step * math.sqrt(k)
+            angle = k * golden_angle
+            candidate = pos + radius * np.array([math.cos(angle), math.sin(angle)])
+            if not self._overlaps_any_body(candidate, new_radius):
+                return candidate
+        return candidate  # bounded by MAX_BODIES spawns total, so this never actually exhausts
+
+    def _overlaps_any_body(self, pos, radius):
+        existing_radii = self._radius_for_mass(self.masses)
+        diffs = pos - self.positions
+        dists = np.sqrt(np.sum(diffs * diffs, axis=1))
+        thresholds = (existing_radii + radius) * self.PLANET_COLLISION_RADIUS_FRACTION
+        return bool((dists < thresholds).any())
 
     def _spawn_body(self, pos, velocity, mass):
         if len(self.masses) >= self.MAX_BODIES:
@@ -378,6 +428,8 @@ class NBodyDemo(Demo):
 
         for bodies in new_bodies:
             for pos, vel, mass in bodies:
+                if len(self.masses) >= self.MAX_BODIES:
+                    break  # fragments past the cap are dropped, same as a tap/launch spawn would be
                 self.positions = np.vstack([self.positions, pos])
                 self.velocities = np.vstack([self.velocities, vel])
                 self.masses = np.append(self.masses, mass)

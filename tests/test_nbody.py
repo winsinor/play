@@ -73,6 +73,24 @@ def test_zero_mass_body_exerts_no_force():
     assert acc[0, 0] == pytest.approx(expected)
 
 
+def test_rapid_taps_at_the_same_spot_do_not_cause_a_population_crash(demo):
+    # Regression guard: spawning many bodies right on top of each other (a
+    # burst of taps landing near the same point, the realistic version of
+    # "adding a lot of planets quickly") must not have them spawn already
+    # overlapping -- that made the very next physics step read it as
+    # simultaneous collisions and merge/shatter away most of what was just
+    # added, crashing the population in well under a second and looking
+    # exactly like a silent reset even though no state was actually lost.
+    for _ in range(120):
+        demo._add_body(420, 250)  # same point every time, no jitter
+    spawned = len(demo.masses)
+    for _ in range(120):
+        demo.update(1 / 60)
+    # losing a handful to legitimate collisions among bodies that drift back
+    # together is fine; losing the bulk of them in one cascade is the bug.
+    assert len(demo.masses) >= spawned * 0.7
+
+
 def test_spawning_past_max_bodies_is_a_silent_no_op(demo):
     # Regression guard: rapid tapping/launching must never be able to grow
     # the body count past MAX_BODIES -- that's what let close encounters
