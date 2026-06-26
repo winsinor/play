@@ -1,4 +1,4 @@
-#from display.demos.draw import DrawDemo
+from display.demos.draw import DrawDemo
 from display.demos.boids import BoidsDemo
 from display.demos.maze import MazeDemo
 from display.demos.fractal import FractalDemo
