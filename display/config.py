@@ -4,7 +4,7 @@ FPS = 60
 SWIPE_THRESHOLD_PX = 60
 TAP_MAX_DURATION = 0.3
 TAP_MAX_DISTANCE_PX = 20
-LONG_PRESS_MIN_DURATION = 0.6
+LONG_PRESS_MIN_DURATION = 2.0
 
 # Single source of truth for physical mounting orientation. Demos always
 # draw onto an unrotated SCREEN_SIZE canvas; main.py rotates that canvas in
