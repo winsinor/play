@@ -3,10 +3,17 @@
 A fun idle-art display for a Raspberry Pi + Pimoroni HyperPixel 4 screen. It
 cycles between generative-art demos — boids flocking, a maze generator/solver,
 a Julia set zoom, a DVD-logo bounce, and a self-playing Snake AI — switching
-only on demand via keyboard or touchscreen swipe (it never auto-advances).
+only on demand via keyboard or touchscreen swipe (it never auto-advances). It
+boots straight into a touch-alignment test grid by default, ahead of the art
+demos, so touchscreen setup can be checked before anything else.
 
 ## Demos
 
+- **Draw** — not generative art, a touch-alignment test grid: a labeled
+  border/grid/diagonals, and every tap leaves a persistent mark with its
+  coordinates (long-press clears them all). This is the default demo on
+  boot — see [`docs/pi-setup.md`](docs/pi-setup.md) for how to use it to
+  diagnose touchscreen misalignment.
 - **Boids** — separation/alignment/cohesion flocking, vectorized with numpy,
   with hard reflective walls. Tap to add a boid, long-press to reset the
   flock.

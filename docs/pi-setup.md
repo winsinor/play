@@ -56,6 +56,23 @@ ignored no matter what you set it to. Two ways forward:
   fixing alignment is just editing a config constant and restarting
   `main.py` -- no reboot, no dtparam guessing.
 
+Either way, use the **Draw** demo (the first thing you see on boot) to check
+each combination: it's a labeled grid with both diagonals drawn on it, and
+every tap leaves a permanent mark with its coordinates (long-press clears
+them). Tap each corner and edge label and compare where the mark actually
+lands against the label it landed near:
+- Marks consistently appearing on the *opposite* edge/corner from the tap
+  (e.g. tapping `BOTTOM` lands a mark near `TOP`) means one axis is
+  inverted -- toggle that axis's `inverted-*` param (or `TOUCH_INVERT_X`/`_Y`).
+- Marks mirroring across one of the two drawn diagonals (e.g. tapping near
+  `BL` lands a mark near `TR`, and vice versa, while `TL`/`TR`-ish taps stay
+  roughly put) means X and Y are swapped relative to what the screen
+  expects -- toggle `touchscreen-swapped-x-y` (or `TOUCH_SWAP_XY`).
+- Combine the two checks above one at a time rather than guessing a whole
+  combo at once -- swap first (using the `TOP`/`BOTTOM`/`LEFT`/`RIGHT` edge
+  labels swapping with each other is the tell), then fix any remaining
+  single-axis inversion.
+
 Reboot, and confirm the display is alive:
 
 ```
@@ -92,7 +109,8 @@ systemctl status pi-display
 journalctl -u pi-display -f
 ```
 
-You should see the first demo (boids) on screen, staying up until you swipe.
+You should see the first demo (Draw, a touch-alignment test grid -- see
+Tuning below) on screen, staying up until you swipe.
 The log line `[input_touch] reading touch events from /dev/input/eventN (...)`
 confirms the touchscreen was found; `[input_touch] no touchscreen device
 found` means the auto-detection didn't find it (see Troubleshooting below) —
