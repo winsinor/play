@@ -26,7 +26,8 @@ def test_step_balls_applies_gravity_and_caps_fall_speed():
 
     new_pos, new_vel, new_next, crossed = step_balls(
         positions, velocities, next_row_index, peg_row_ys, dt=1.0,
-        gravity=1000.0, max_fall_speed=50.0, kick_speed=70.0, kick_decay=6.0, rng=rng,
+        gravity=1000.0, max_fall_speed=50.0, kick_speed=70.0, kick_decay=6.0,
+        peg_spacing_x=52.0, rng=rng,
     )
     assert not crossed.any()
     assert new_vel[0, 1] == 50.0  # capped, not 1000
@@ -43,7 +44,8 @@ def test_step_balls_kicks_only_balls_crossing_a_row():
 
     _, new_vel, new_next, crossed = step_balls(
         positions, velocities, next_row_index, peg_row_ys, dt=1.0,
-        gravity=0.0, max_fall_speed=10000.0, kick_speed=70.0, kick_decay=0.0, rng=rng,
+        gravity=0.0, max_fall_speed=10000.0, kick_speed=70.0, kick_decay=0.0,
+        peg_spacing_x=52.0, rng=rng,
     )
     assert list(crossed) == [True, False]
     assert abs(new_vel[0, 0]) == 70.0
@@ -61,7 +63,8 @@ def test_step_balls_kick_split_is_unbiased():
 
     _, new_vel, _, crossed = step_balls(
         positions, velocities, next_row_index, peg_row_ys, dt=1.0,
-        gravity=0.0, max_fall_speed=10000.0, kick_speed=70.0, kick_decay=0.0, rng=rng,
+        gravity=0.0, max_fall_speed=10000.0, kick_speed=70.0, kick_decay=0.0,
+        peg_spacing_x=52.0, rng=rng,
     )
     assert crossed.all()
     left = np.sum(new_vel[:, 0] < 0)
@@ -73,6 +76,7 @@ def test_step_balls_kick_split_is_unbiased():
 def test_full_drop_histogram_approximates_binomial_distribution():
     rows = 8
     n_bins = rows + 1
+    peg_spacing_x = 2.0
     peg_row_ys = np.array([float(r) for r in range(rows)])
     n_balls = 20000
 
@@ -82,20 +86,26 @@ def test_full_drop_histogram_approximates_binomial_distribution():
     rng = np.random.default_rng(7)
 
     # vy=1 with row spacing 1 crosses exactly one row per step (gravity=0,
-    # fixed vy) -- isolates the kick statistics from the fall-speed cap,
-    # which is already covered above. One extra step beyond `rows` is needed
-    # because a kick changes vx for the *next* step's position update, not
-    # the step it was triggered on -- without it the final row's kick would
-    # never show up in the landing x position.
-    for _ in range(rows + 1):
+    # fixed vy) -- isolates the deflection statistics from the fall-speed
+    # cap, which is already covered above. The deterministic +/-peg_spacing_x/2
+    # jump lands immediately on the same step as the crossing, so no extra
+    # step is needed to see it show up in the landing x position.
+    # kick_speed=0 here: the deflection alone determines the landing bin, so
+    # the cosmetic between-row vx motion (which would otherwise persist
+    # un-decayed at kick_decay=0 and corrupt the landing position) is left
+    # out entirely.
+    for _ in range(rows):
         positions, velocities, next_row_index, _ = step_balls(
             positions, velocities, next_row_index, peg_row_ys, dt=1.0,
-            gravity=0.0, max_fall_speed=10.0, kick_speed=1.0, kick_decay=0.0, rng=rng,
+            gravity=0.0, max_fall_speed=10.0, kick_speed=0.0, kick_decay=0.0,
+            peg_spacing_x=peg_spacing_x, rng=rng,
         )
 
-    # Each kick moves x by +/-1 in the following step, so after `rows` kicks
-    # x lands on one of rows+1 evenly-spaced even integers in [-rows, rows].
-    bins = bin_index_for_x(positions[:, 0], bins_left=-(rows + 1), bin_width=2.0, n_bins=n_bins)
+    # After `rows` deflections of +/-peg_spacing_x/2 each, x lands on one of
+    # rows+1 evenly-spaced points in [-rows*peg_spacing_x/2, rows*peg_spacing_x/2],
+    # matching the real demo's bins_left/bin_width formulas exactly.
+    bins_left = -(rows * peg_spacing_x / 2 + peg_spacing_x / 2)
+    bins = bin_index_for_x(positions[:, 0], bins_left=bins_left, bin_width=peg_spacing_x, n_bins=n_bins)
     counts = np.bincount(bins, minlength=n_bins)
     assert counts.sum() == n_balls
 

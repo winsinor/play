@@ -17,9 +17,13 @@ LABEL_COLOR = (200, 205, 215)
 class PlinkoDemo(Demo):
     ROWS = 8
     PEG_SPACING_X = 52
-    PEG_SPACING_Y = 38
-    PEG_RADIUS = 4
-    TOP_MARGIN = 46
+    # Taller/wider than a non-rotated board would need -- the demo is drawn
+    # on a portrait virtual canvas (screen height x screen width) and then
+    # rotated 90 degrees clockwise onto the real landscape screen, so these
+    # are tuned against the swapped dimensions (see setup()/draw()).
+    PEG_SPACING_Y = 70
+    PEG_RADIUS = 5
+    TOP_MARGIN = 60
     N_BINS = ROWS + 1  # one more bin than the bottom peg row -- real binomial outcome count
 
     GRAVITY = 480.0
@@ -28,19 +32,24 @@ class PlinkoDemo(Demo):
     MAX_FALL_SPEED = 260.0
     KICK_SPEED = 70.0
     KICK_DECAY = 6.0  # exponential decay rate (/s) pulling vx back to 0 between kicks
-    BALL_RADIUS = 4
+    BALL_RADIUS = 8
 
     DROP_STAGGER_SECONDS = 0.05
     PAUSE_SECONDS = 3.0
 
-    BAR_AREA_HEIGHT = 120
+    BAR_AREA_HEIGHT = 110
 
     def setup(self, screen_size):
         self.width, self.height = screen_size
+        # Layout/physics happen on a virtual canvas with width and height
+        # swapped relative to the real screen; draw() renders to this canvas
+        # and then rotates it 90 degrees clockwise onto the real surface.
+        self.sim_width, self.sim_height = self.height, self.width
+        self._scene_surface = pygame.Surface((self.sim_width, self.sim_height))
         self.rng = np.random.default_rng()
         self.font = pygame.font.SysFont(None, 18)
 
-        self.center_x = self.width / 2
+        self.center_x = self.sim_width / 2
         self.peg_rows = [
             [
                 (self.center_x + (c - r / 2) * self.PEG_SPACING_X, self.TOP_MARGIN + r * self.PEG_SPACING_Y)
@@ -57,7 +66,7 @@ class PlinkoDemo(Demo):
         # than the last peg row so a ball that drifted far still lands in a
         # real bin instead of clamping at the very edge one every time.
         self.bin_area_top = self.peg_row_ys[-1] + self.PEG_SPACING_Y
-        self.bin_area_bottom = min(self.height - 14, self.bin_area_top + self.BAR_AREA_HEIGHT)
+        self.bin_area_bottom = min(self.sim_height - 14, self.bin_area_top + self.BAR_AREA_HEIGHT)
         board_half_width = self.ROWS * self.PEG_SPACING_X / 2
         self.bins_left = self.center_x - board_half_width
         self.bin_width = (2 * board_half_width) / self.N_BINS
@@ -124,6 +133,7 @@ class PlinkoDemo(Demo):
             max_fall_speed=self.MAX_FALL_SPEED,
             kick_speed=self.KICK_SPEED,
             kick_decay=self.KICK_DECAY,
+            peg_spacing_x=self.PEG_SPACING_X,
             rng=self.rng,
         )
 
@@ -140,10 +150,12 @@ class PlinkoDemo(Demo):
             self.next_row_index = self.next_row_index[keep]
 
     def draw(self, surface):
-        surface.fill(BG_COLOR)
-        self._draw_pegs(surface)
-        self._draw_balls(surface)
-        self._draw_bins(surface)
+        scene = self._scene_surface
+        scene.fill(BG_COLOR)
+        self._draw_pegs(scene)
+        self._draw_balls(scene)
+        self._draw_bins(scene)
+        surface.blit(pygame.transform.rotate(scene, -90), (0, 0))
 
     def _draw_pegs(self, surface):
         for row in self.peg_rows:
@@ -183,16 +195,22 @@ class PlinkoDemo(Demo):
 
 def step_balls(
     positions, velocities, next_row_index, peg_row_ys, dt, *, gravity, max_fall_speed, kick_speed,
-    kick_decay, rng,
+    kick_decay, peg_spacing_x, rng,
 ):
     """Pure numpy step for every ball at once. Gravity accelerates vy (capped
-    at max_fall_speed); vx decays exponentially toward 0 between kicks. A
-    ball "crosses" a peg row once its new y reaches that row's y, at which
-    point it gets an unbiased +/-kick_speed horizontal kick and advances to
-    the next row -- once next_row_index has passed every row, no further
-    kicks apply and the ball just falls straight down. Returns the updated
-    (positions, velocities, next_row_index) plus a bool mask of which balls
-    were kicked this step."""
+    at max_fall_speed). A ball "crosses" a peg row once its new y reaches
+    that row's y, at which point it gets an unbiased left/right deflection
+    and advances to the next row -- once next_row_index has passed every
+    row, no further deflections apply and the ball just falls straight down.
+
+    The deflection has two parts: a deterministic horizontal jump of exactly
+    half a peg-spacing (matching a real Galton board, where landing position
+    after `rows` deflections is `center +/- k*peg_spacing_x` for k rightward
+    kicks -- this is what actually determines the bin a ball lands in,
+    independent of fall-speed/timing). `vx`/kick_speed/kick_decay only add a
+    bit of cosmetic sideways motion between rows and have no bearing on the
+    final landing column. Returns the updated (positions, velocities,
+    next_row_index) plus a bool mask of which balls were kicked this step."""
     vx = velocities[:, 0] * np.exp(-kick_decay * dt)
     vy = np.minimum(velocities[:, 1] + gravity * dt, max_fall_speed)
     new_y = positions[:, 1] + vy * dt
@@ -207,6 +225,7 @@ def step_balls(
     if crossed.any():
         signs = rng.integers(0, 2, size=int(crossed.sum())) * 2 - 1
         vx[crossed] = kick_speed * signs
+        new_x[crossed] += signs * (peg_spacing_x / 2)
         new_next_row_index = next_row_index.copy()
         new_next_row_index[crossed] += 1
 
