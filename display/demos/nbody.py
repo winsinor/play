@@ -40,6 +40,7 @@ class NBodyDemo(Demo):
     MIN_DRAW_RADIUS = 3
     MAX_DRAW_RADIUS = 18
     TRAIL_LENGTH = 90  # ~1.5s at 60fps
+    RECENTER_INTERVAL = 5.0  # seconds between recentering the star
 
     def setup(self, screen_size):
         self.width, self.height = screen_size
@@ -53,6 +54,7 @@ class NBodyDemo(Demo):
         self.colors = [STAR_COLOR]
         self.trails = [deque(maxlen=self.TRAIL_LENGTH)]
         self._next_color_index = 0
+        self._time_since_recenter = 0.0
 
         rng = np.random.default_rng()
         min_dim = min(self.width, self.height)
@@ -132,6 +134,20 @@ class NBodyDemo(Demo):
         self.positions = self.positions + self.velocities * dt
         self._update_trails()
         self._cull_escaped_bodies()
+        self._recenter_star_if_needed(dt)
+
+    def _recenter_star_if_needed(self, dt):
+        """Every RECENTER_INTERVAL seconds, snap the star back to the center
+        of the screen. This prevents long-term drift from accumulated momentum
+        kicks without affecting the physics of the orbits themselves."""
+        self._time_since_recenter += dt
+        if self._time_since_recenter >= self.RECENTER_INTERVAL:
+            cx, cy = self.width / 2, self.height / 2
+            star_pos = self.positions[0]
+            offset = np.array([cx, cy]) - star_pos
+            # Move all bodies by the same offset so relative positions stay the same
+            self.positions += offset
+            self._time_since_recenter = 0.0
 
     def _update_trails(self):
         star_mass = self.masses.max() if len(self.masses) else 0.0
