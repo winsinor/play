@@ -1,7 +1,17 @@
 import numpy as np
+import pygame
 import pytest
 
-from display.demos.nbody import compute_gravitational_acceleration
+from display.demos.nbody import NBodyDemo, compute_gravitational_acceleration
+from display.manager import PinchZoomEvent
+
+
+@pytest.fixture
+def demo():
+    pygame.init()
+    d = NBodyDemo()
+    d.setup((800, 480))
+    return d
 
 
 def test_single_body_has_zero_acceleration():
@@ -61,3 +71,46 @@ def test_zero_mass_body_exerts_no_force():
     # Body 0 only feels body 2 (the massless body 1 contributes nothing).
     expected = 1.0 * 5.0 / 20.0**2
     assert acc[0, 0] == pytest.approx(expected)
+
+
+def test_spawning_past_max_bodies_is_a_silent_no_op(demo):
+    # Regression guard: rapid tapping/launching must never be able to grow
+    # the body count past MAX_BODIES -- that's what let close encounters
+    # get frequent enough to blow positions up to inf/nan and wipe the sim
+    # (see MAX_BODIES's docstring).
+    for i in range(demo.MAX_BODIES + 50):
+        demo._add_body(400 + i * 0.01, 240 + i * 0.01)
+    assert len(demo.masses) == demo.MAX_BODIES
+
+
+def test_physics_never_goes_non_finite_with_many_close_bodies(demo):
+    for i in range(demo.MAX_BODIES):
+        demo._add_body(400 + i * 0.01, 240 + i * 0.01)
+    for _ in range(500):
+        demo.update(1 / 60)
+        assert len(demo.masses) > 0, "simulation reset (array went empty)"
+        assert np.isfinite(demo.positions).all()
+        assert np.isfinite(demo.velocities).all()
+
+
+def test_large_dt_spike_does_not_blow_up_positions(demo):
+    # A stalled frame (GC pause, slow draw call) must not translate into one
+    # huge Euler step -- update() should clamp it internally.
+    demo.update(5.0)
+    assert np.isfinite(demo.positions).all()
+    assert np.isfinite(demo.velocities).all()
+
+
+def test_pinch_zoom_eases_toward_target_instead_of_snapping(demo):
+    demo.handle_touch(PinchZoomEvent(0.1))
+    assert demo.zoom == pytest.approx(1.0)  # not yet applied -- only the target moved
+    assert demo._zoom_target == pytest.approx(0.1)
+    demo.update(1 / 60)
+    assert 0.1 < demo.zoom < 1.0  # eased partway, not snapped all the way
+
+
+def test_pinch_zoom_eventually_reaches_target(demo):
+    demo.handle_touch(PinchZoomEvent(0.1))
+    for _ in range(300):
+        demo.update(1 / 60)
+    assert demo.zoom == pytest.approx(0.1, abs=1e-3)

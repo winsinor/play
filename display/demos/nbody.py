@@ -55,6 +55,23 @@ class NBodyDemo(Demo):
     # just merge instead of shattering.
     MIN_FRAGMENT_MASS = 10.0
     MAX_FRAGMENTS = 3  # cap shrapnel count so a hit doesn't clutter the screen
+    # Hard cap on body count. Without this, tapping/launching in rapidly
+    # raises n into a range where close encounters get frequent enough to
+    # slingshot a body to extreme speed in one frame; the next frame's
+    # position update can then overflow to inf/nan, which (once it reaches
+    # the star, the body every other body's gravity and the camera are both
+    # anchored to) wipes out the whole array and looks like the demo
+    # "resetting". Spawns past this cap are silently dropped instead.
+    MAX_BODIES = 150
+    # Hard speed clamp applied every frame, for the same reason: it stops a
+    # numerically chaotic close encounter from ever reaching the magnitudes
+    # that would overflow into inf/nan in the first place.
+    MAX_SPEED = 4000.0
+    # Upper bound on the dt used for physics, independent of config.FPS --
+    # a stalled frame (GC pause, a slow draw call, OS scheduling) must not
+    # translate into one huge Euler integration step that flings a body
+    # arbitrarily far.
+    MAX_PHYSICS_DT = 1.0 / 30.0
     # A collision shatters the bodies if their impact speed exceeds their
     # mutual escape velocity (the real-world rule of thumb for whether debris
     # stays gravitationally bound or flies apart); slower grazes just merge.
@@ -83,10 +100,18 @@ class NBodyDemo(Demo):
     # emptiness beyond where anything could possibly still be.
     ZOOM_MAX = 1.0
     ZOOM_MIN = 1.0 / TRACKING_AREA_MULTIPLIER
+    # Pinch events fire once per raw touch sample, which on real touch
+    # hardware is noisy/quantized -- applying each one directly to self.zoom
+    # made zoom jump around rather than track the fingers smoothly. Instead,
+    # each event only moves a target value, and self.zoom eases toward that
+    # target every frame (like a phone's pinch-zoom inertia) at this rate
+    # (per second, exponential decay -- higher is snappier/closer to instant).
+    ZOOM_SMOOTHING_RATE = 10.0
 
     def setup(self, screen_size):
         self.width, self.height = screen_size
         self.zoom = self.ZOOM_MAX
+        self._zoom_target = self.ZOOM_MAX
         self._launch_origin_world = None
         self._launch_current_world = None
         self._spawn_initial_system()
@@ -148,7 +173,7 @@ class NBodyDemo(Demo):
             self._launch_origin_world = None
             self._launch_current_world = None
         elif isinstance(event, PinchZoomEvent):
-            self.zoom = float(np.clip(self.zoom * event.scale, self.ZOOM_MIN, self.ZOOM_MAX))
+            self._zoom_target = float(np.clip(self._zoom_target * event.scale, self.ZOOM_MIN, self.ZOOM_MAX))
 
     def _world_to_screen(self, pos):
         """Maps a world-space position to where it lands on screen: the
@@ -198,6 +223,9 @@ class NBodyDemo(Demo):
         self._spawn_body(origin, velocity, planet_mass)
 
     def _spawn_body(self, pos, velocity, mass):
+        if len(self.masses) >= self.MAX_BODIES:
+            return  # at the cap -- drop the spawn rather than destabilizing the sim
+
         # Conserve momentum: the new body's momentum must be balanced by an
         # equal-and-opposite kick to the star, otherwise every add injects
         # net momentum into the system and the star (which dominates the
@@ -253,10 +281,17 @@ class NBodyDemo(Demo):
             self._spawn_initial_system()
             return
 
+        dt = min(dt, self.MAX_PHYSICS_DT)
+        self.zoom += (self._zoom_target - self.zoom) * min(1.0, dt * self.ZOOM_SMOOTHING_RATE)
+
         accel = compute_gravitational_acceleration(
             self.positions, self.masses, g=self.G, softening=self.SOFTENING
         )
         self.velocities = self.velocities + accel * dt
+        speed = np.sqrt(np.sum(self.velocities * self.velocities, axis=1))
+        too_fast = speed > self.MAX_SPEED
+        if too_fast.any():
+            self.velocities[too_fast] *= (self.MAX_SPEED / speed[too_fast])[:, None]
         self.positions = self.positions + self.velocities * dt
         self._update_trails()
         self._check_collisions()
