@@ -26,7 +26,7 @@ class NBodyDemo(Demo):
     SOFTENING = 15.0
     # Heavy enough that the momentum a tapped-in body imparts barely moves it
     # even before the momentum-conserving kick in _add_body is applied.
-    STAR_MASS = 8000.0
+    STAR_MASS = 80000.0
     ORBITER_MASS = 30.0
     TAP_BODY_MASS = 50.0
     NUM_INITIAL_ORBITERS = 4
