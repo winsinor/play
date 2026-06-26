@@ -151,12 +151,14 @@ All the knobs live in `display/config.py`:
   automatically, see `display.input_touch.touch_flags_for_rotation`), so
   they can't end up disagreeing with each other. Use the **Draw** demo (the
   first thing you see on boot — a labeled grid where every tap leaves a
-  permanent mark with its coordinates, long-press clears them) to check it:
-  tap each corner/edge label and confirm the mark lands right where you
-  touched. If the whole image looks sideways or upside-down for your mount,
-  or marks land consistently away from where you tapped, change this value
-  (try the other three) and restart `main.py` — no reboot needed.
-- `SWIPE_THRESHOLD_PX` — how far (in raw touch units) a swipe needs to travel
+  permanent mark with its coordinates) to check it: tap each corner/edge
+  label and confirm the mark lands right where you touched. If the whole
+  image looks sideways or upside-down for your mount, or marks land
+  consistently away from where you tapped, change this value (try the other
+  three) and restart `main.py` — no reboot needed.
+- `SWIPE_THRESHOLD_FRACTION` — how much of the screen width a swipe needs to
+  cross (0.8 = 80%) before it's recognized, rather than mistaken for a pinch
+  or a slingshot drag
 - `TAP_MAX_DURATION` / `TAP_MAX_DISTANCE_PX` — what counts as a "tap" vs a drag
 - `LONG_PRESS_MIN_DURATION` — how long a held touch needs to last to count as
   a long press instead of a tap

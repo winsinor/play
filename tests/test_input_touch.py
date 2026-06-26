@@ -151,7 +151,7 @@ def _run_gesture(monkeypatch, events, **thread_kwargs):
     event_queue = queue.Queue()
     thread = TouchInputThread(
         event_queue,
-        swipe_threshold_px=thread_kwargs.pop("swipe_threshold_px", 300),
+        swipe_threshold_fraction=thread_kwargs.pop("swipe_threshold_fraction", 0.3),
         tap_max_duration=thread_kwargs.pop("tap_max_duration", 0.3),
         tap_max_distance_px=thread_kwargs.pop("tap_max_distance_px", 20),
         long_press_min_duration=thread_kwargs.pop("long_press_min_duration", 0.0),
@@ -211,11 +211,39 @@ def test_large_fast_horizontal_move_is_a_swipe(monkeypatch):
     # check is trivially satisfied and the move gets misclassified as a drag --
     # see the default of 0.0 used by other tests here, which exists precisely to
     # let *those* tests start dragging immediately.
-    # Finger moves left (500 -> 100, negative delta_x), which by the swipe
-    # convention in _finish_touch ("swipe left -> next") maps to NavEvent.NEXT.
-    events = [*_down(0, 1, 500, 500), *_btn(1), *_move(0, 100, 500), *_up(0), *_btn(0)]
-    result = _run_gesture(monkeypatch, events, swipe_threshold_px=300, long_press_min_duration=1.0)
+    # Finger moves left from 950 to 50 (900px, 90% of the 1000px canvas, past
+    # the 80% swipe_threshold_fraction), which by the swipe convention in
+    # _finish_touch ("swipe left -> next") maps to NavEvent.NEXT.
+    events = [*_down(0, 1, 950, 500), *_btn(1), *_move(0, 50, 500), *_up(0), *_btn(0)]
+    result = _run_gesture(monkeypatch, events, swipe_threshold_fraction=0.8, long_press_min_duration=1.0)
     assert result == [NavEvent.NEXT]
+
+
+def test_move_short_of_80_percent_width_is_not_a_swipe(monkeypatch):
+    # Same direction as the swipe above, but only 70% of the canvas width --
+    # short of the 80% bar, so it must not fire a NavEvent (and since it never
+    # entered drag-mode either, it's a silent no-op, not a tap).
+    events = [*_down(0, 1, 900, 500), *_btn(1), *_move(0, 200, 500), *_up(0), *_btn(0)]
+    result = _run_gesture(monkeypatch, events, swipe_threshold_fraction=0.8, long_press_min_duration=1.0)
+    assert result == []
+
+
+def test_swipe_does_not_fire_after_a_pinch_even_past_distance_threshold(monkeypatch):
+    # Two fingers touch down (a pinch), then the second lifts and the first
+    # finger -- which happened to have drifted past the swipe distance while
+    # the pinch was happening -- lifts too. This must never be read as a
+    # swipe (it's the tail end of a zoom gesture, not a one-finger swipe).
+    events = [
+        *_down(0, 1, 950, 500),
+        *_btn(1),
+        *_down(1, 2, 100, 100),  # second finger touches down -> pinch
+        *_move(0, 50, 500),  # primary finger drifts 900px, past any swipe threshold
+        *_up(1),  # second finger lifts
+        *_up(0),  # primary finger lifts -- must not be classified as a swipe
+        *_btn(0),
+    ]
+    result = _run_gesture(monkeypatch, events, swipe_threshold_fraction=0.8, long_press_min_duration=1.0)
+    assert not any(e in (NavEvent.PREV, NavEvent.NEXT) for e in result)
 
 
 def test_drag_past_threshold_emits_drag_then_release(monkeypatch):

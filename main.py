@@ -83,11 +83,13 @@ def main(argv=None):
     input_queue = queue.Queue()
     touch_thread = TouchInputThread(
         input_queue,
-        swipe_threshold_px=config.SWIPE_THRESHOLD_PX,
+        swipe_threshold_fraction=config.SWIPE_THRESHOLD_FRACTION,
         tap_max_duration=config.TAP_MAX_DURATION,
         tap_max_distance_px=config.TAP_MAX_DISTANCE_PX,
         long_press_min_duration=config.LONG_PRESS_MIN_DURATION,
         rotate_degrees=config.DISPLAY_ROTATE_DEGREES,
+        canvas_width=canvas.get_width(),
+        canvas_height=canvas.get_height(),
     )
     touch_thread.start()
 

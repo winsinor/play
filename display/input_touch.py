@@ -91,7 +91,7 @@ class TouchInputThread(threading.Thread):
     def __init__(
         self,
         event_queue,
-        swipe_threshold_px,
+        swipe_threshold_fraction,
         tap_max_duration,
         tap_max_distance_px,
         long_press_min_duration,
@@ -102,7 +102,10 @@ class TouchInputThread(threading.Thread):
     ):
         super().__init__(daemon=True)
         self.event_queue = event_queue
-        self.swipe_threshold_px = swipe_threshold_px
+        # A swipe must cross most of the screen so it's never confused with a
+        # pinch or a slingshot drag (those are also guarded explicitly below,
+        # but a high distance bar makes a misfire essentially impossible too).
+        self.swipe_threshold_px = swipe_threshold_fraction * canvas_width
         self.tap_max_duration = tap_max_duration
         self.tap_max_distance_px = tap_max_distance_px
         self.long_press_min_duration = long_press_min_duration
@@ -146,6 +149,10 @@ class TouchInputThread(threading.Thread):
         active_slots = set()
         slot_positions = {}
         pinch_prev_distance = None
+        # True if a second finger touched down at any point during the
+        # gesture currently being tracked on primary_slot -- a swipe must
+        # never fire off the tail end of what was actually a pinch.
+        gesture_had_second_finger = False
 
         try:
             for event in device.read_loop():
@@ -164,6 +171,7 @@ class TouchInputThread(threading.Thread):
                         if start_x is None:
                             start_x = event.value
                             start_time = time.monotonic()
+                            gesture_had_second_finger = False
 
                 elif event.type == evdev.ecodes.EV_ABS and event.code in (
                     evdev.ecodes.ABS_MT_POSITION_Y,
@@ -190,18 +198,26 @@ class TouchInputThread(threading.Thread):
                             # lifted -- finish it, then (rare) if another
                             # finger is still down, hand single-touch
                             # tracking over to it for whatever comes next.
-                            self._finish_touch(start_x, start_y, last_x, last_y, start_time, dragging)
+                            self._finish_touch(
+                                start_x, start_y, last_x, last_y, start_time, dragging, gesture_had_second_finger
+                            )
                             start_x = start_y = last_x = last_y = start_time = None
                             dragging = False
+                            gesture_had_second_finger = False
                             primary_slot = next(iter(active_slots), None)
                     else:
                         active_slots.add(mt_slot)
+                        if len(active_slots) >= 2:
+                            gesture_had_second_finger = True
 
                 elif event.type == evdev.ecodes.EV_KEY and event.code == evdev.ecodes.BTN_TOUCH:
                     if event.value == 0:
-                        self._finish_touch(start_x, start_y, last_x, last_y, start_time, dragging)
+                        self._finish_touch(
+                            start_x, start_y, last_x, last_y, start_time, dragging, gesture_had_second_finger
+                        )
                         start_x = start_y = last_x = last_y = start_time = None
                         dragging = False
+                        gesture_had_second_finger = False
                         primary_slot = None
                         active_slots.clear()
                         slot_positions.clear()
@@ -268,7 +284,7 @@ class TouchInputThread(threading.Thread):
         self.event_queue.put(PressDragEvent(last_x, last_y, start_x, start_y))
         return dragging
 
-    def _finish_touch(self, start_x, start_y, end_x, end_y, start_time, dragging):
+    def _finish_touch(self, start_x, start_y, end_x, end_y, start_time, dragging, had_second_finger=False):
         if start_x is None or end_x is None or start_time is None:
             return
         if self.swap_xy or self.invert_x or self.invert_y:
@@ -286,7 +302,10 @@ class TouchInputThread(threading.Thread):
         delta_y = (end_y - start_y) if (start_y is not None and end_y is not None) else 0
         duration = time.monotonic() - start_time
 
-        if abs(delta_x) >= self.swipe_threshold_px:
+        # A pinch's tail end (second finger lifts, then the first finger's
+        # own lift closes out the gesture) must never be misread as a swipe,
+        # even if that finger drifted past the swipe distance during the pinch.
+        if not had_second_finger and abs(delta_x) >= self.swipe_threshold_px:
             # swipe left (finger moves left, negative delta) -> next; swipe right -> prev
             self.event_queue.put(NavEvent.PREV if delta_x > 0 else NavEvent.NEXT)
             return
