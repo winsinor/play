@@ -6,7 +6,7 @@ The app renders straight to the framebuffer/DRM (SDL's `kmsdrm` driver) and
 runs as a systemd service, so it comes up automatically on boot with no login
 required.
 
-## 1. Enable the display + touch overlay, with rotation
+## 1. Enable the display overlay (no rotation here)
 
 On current Raspberry Pi OS (kernel 5.15+, images from 2022-04-04 or later —
 this is what ships today), HyperPixel4 is driven by the standard VC4 **KMS**
@@ -20,58 +20,18 @@ Edit `/boot/firmware/config.txt` (older OS images: `/boot/config.txt`) and add:
 dtoverlay=vc4-kms-dpi-hyperpixel4
 ```
 
-The default orientation is portrait with the USB/power ports on the right.
-For landscape, add one of these `dtparam` lines directly underneath (these
-rotate the touch input to match, so the app never needs its own coordinate
-transform):
-
-```
-dtparam=rotate=90,touchscreen-swapped-x-y,touchscreen-inverted-y
-```
-— landscape, ports on the bottom — or:
-```
-dtparam=rotate=270,touchscreen-swapped-x-y,touchscreen-inverted-x
-```
-— landscape, ports on the top. Pick whichever matches your physical mount.
-
-If a tap doesn't land where you actually touched after picking one of these
-(e.g. it's consistently flipped on one axis, or several swap/invert
-combinations all seem to produce the same wrong result), don't keep
-stacking more touchscreen params onto the same `dtparam=` line --
-some overlays silently drop parameters past a count limit (Pi's dtoverlay
-parser is known to truncate to the first ~3 on `dtoverlay`/`dtparam` lines
-that combine `touchscreen-swapped-x-y`/`touchscreen-inverted-x`/
-`touchscreen-inverted-y`/`rotate` together), so a 4th param can be silently
-ignored no matter what you set it to. Two ways forward:
-- Split the params across separate `dtparam=` lines (they apply cumulatively
-  to the most-recently-declared `dtoverlay`), e.g.
-  `dtparam=rotate=90` / `dtparam=touchscreen-swapped-x-y` /
-  `dtparam=touchscreen-inverted-x` / `dtparam=touchscreen-inverted-y` on
-  four separate lines, then reboot and retest.
-- Or skip the kernel quirks for axis correction entirely and use the
-  software fallback: set `TOUCH_SWAP_XY` / `TOUCH_INVERT_X` / `TOUCH_INVERT_Y`
-  in `display/config.py` (default `False`). The app reads the touch
-  device's real coordinate range at startup and remaps raw touch
-  coordinates itself (`display/input_touch.py`'s `remap_touch_xy`), so
-  fixing alignment is just editing a config constant and restarting
-  `main.py` -- no reboot, no dtparam guessing.
-
-Either way, use the **Draw** demo (the first thing you see on boot) to check
-each combination: it's a labeled grid with both diagonals drawn on it, and
-every tap leaves a permanent mark with its coordinates (long-press clears
-them). Tap each corner and edge label and compare where the mark actually
-lands against the label it landed near:
-- Marks consistently appearing on the *opposite* edge/corner from the tap
-  (e.g. tapping `BOTTOM` lands a mark near `TOP`) means one axis is
-  inverted -- toggle that axis's `inverted-*` param (or `TOUCH_INVERT_X`/`_Y`).
-- Marks mirroring across one of the two drawn diagonals (e.g. tapping near
-  `BL` lands a mark near `TR`, and vice versa, while `TL`/`TR`-ish taps stay
-  roughly put) means X and Y are swapped relative to what the screen
-  expects -- toggle `touchscreen-swapped-x-y` (or `TOUCH_SWAP_XY`).
-- Combine the two checks above one at a time rather than guessing a whole
-  combo at once -- swap first (using the `TOP`/`BOTTOM`/`LEFT`/`RIGHT` edge
-  labels swapping with each other is the tell), then fix any remaining
-  single-axis inversion.
+That's it for `config.txt` — **don't add any `dtparam=rotate` or
+`dtparam=touchscreen-*` lines.** Earlier versions of this doc had you rotate
+the panel and its touch input at the kernel level, picking from a couple of
+swap/invert dtparam combos. That turned out to be fragile in practice (the
+overlay parser silently truncates parameter lists past ~3 params, and at
+least one HyperPixel touch controller revision didn't behave like either
+documented preset regardless), and debugging it meant a reboot per guess.
+Rotation is now handled entirely in software (`display.config.DISPLAY_ROTATE_DEGREES`,
+see step 7) — the panel stays in its native portrait orientation at the
+kernel level, and the app rotates the rendered image and the touch
+coordinates together, in lockstep, so they can never drift apart. Changing
+it is a one-line edit and a restart, no reboot.
 
 Reboot, and confirm the display is alive:
 
@@ -79,7 +39,7 @@ Reboot, and confirm the display is alive:
 sudo reboot
 # after it comes back up:
 ls /dev/dri              # should list card0/card1 + renderD128 -- if empty, the KMS overlay isn't loading
-fbset                     # should show an 800x480 (or 480x800, depending on rotate) framebuffer
+fbset                     # should show the panel's native resolution (e.g. 480x800, portrait -- rotation happens later, in software)
 ```
 
 ## 2. Install the app
@@ -185,12 +145,21 @@ Environment=EVDEV_TOUCH_DEVICE=/dev/input/event2
 
 All the knobs live in `display/config.py`:
 
+- `DISPLAY_ROTATE_DEGREES` — physical mounting orientation, 0/90/180/270
+  counterclockwise. This is the only knob you need for rotation: it rotates
+  the rendered screen *and* the touch coordinates together (derived
+  automatically, see `display.input_touch.touch_flags_for_rotation`), so
+  they can't end up disagreeing with each other. Use the **Draw** demo (the
+  first thing you see on boot — a labeled grid where every tap leaves a
+  permanent mark with its coordinates, long-press clears them) to check it:
+  tap each corner/edge label and confirm the mark lands right where you
+  touched. If the whole image looks sideways or upside-down for your mount,
+  or marks land consistently away from where you tapped, change this value
+  (try the other three) and restart `main.py` — no reboot needed.
 - `SWIPE_THRESHOLD_PX` — how far (in raw touch units) a swipe needs to travel
 - `TAP_MAX_DURATION` / `TAP_MAX_DISTANCE_PX` — what counts as a "tap" vs a drag
 - `LONG_PRESS_MIN_DURATION` — how long a held touch needs to last to count as
   a long press instead of a tap
-- `TOUCH_SWAP_XY` / `TOUCH_INVERT_X` / `TOUCH_INVERT_Y` — software touch axis
-  correction, see the troubleshooting note in step 1 above
 
 Per-demo parameters (boid count/speed, maze cell size/animation speed,
 fractal zoom targets/rate, DVD corner-hit timing, snake move speed) are

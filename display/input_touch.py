@@ -39,13 +39,10 @@ def find_touch_device():
 
 
 def remap_touch_xy(x, y, min_x, max_x, min_y, max_y, swap_xy, invert_x, invert_y):
-    """Correct raw touch coordinates in software, as an alternative to
-    getting the kernel's touchscreen-swapped-x-y/-inverted-x/-inverted-y
-    dtparam combo right (see docs/pi-setup.md) -- some HyperPixel touch
-    controller revisions need a combination that overlay parameter parsing
-    can't reliably express on a single dtparam line. Swap is applied first,
-    then per-axis inversion (using that axis's own min/max after the swap).
-    """
+    """Apply a swap/invert combo to a raw touch coordinate. Swap is applied
+    first, then per-axis inversion (using that axis's own min/max after the
+    swap). Used by TouchInputThread to undo display.config.DISPLAY_ROTATE_DEGREES
+    (see touch_flags_for_rotation below)."""
     if swap_xy:
         x, y, min_x, max_x, min_y, max_y = y, x, min_y, max_y, min_x, max_x
     if invert_x:
@@ -53,6 +50,24 @@ def remap_touch_xy(x, y, min_x, max_x, min_y, max_y, swap_xy, invert_x, invert_y
     if invert_y:
         y = max_y - (y - min_y)
     return x, y
+
+
+def touch_flags_for_rotation(degrees):
+    """The (swap_xy, invert_x, invert_y) combo that undoes a counterclockwise
+    pygame.transform.rotate(canvas, degrees) of the screen, mapping a raw
+    touch point in the *rotated* (physical) coordinate space back to the
+    unrotated canvas space the demos draw in. Derived from -- and verified
+    against -- pygame's actual rotation pixel mapping, not guessed."""
+    degrees = degrees % 360
+    try:
+        return {
+            0: (False, False, False),
+            90: (True, True, False),
+            180: (False, True, True),
+            270: (True, False, True),
+        }[degrees]
+    except KeyError:
+        raise ValueError(f"DISPLAY_ROTATE_DEGREES must be 0/90/180/270, got {degrees}") from None
 
 
 class TouchInputThread(threading.Thread):
@@ -64,9 +79,7 @@ class TouchInputThread(threading.Thread):
         tap_max_distance_px,
         long_press_min_duration,
         device=None,
-        swap_xy=False,
-        invert_x=False,
-        invert_y=False,
+        rotate_degrees=0,
     ):
         super().__init__(daemon=True)
         self.event_queue = event_queue
@@ -75,9 +88,7 @@ class TouchInputThread(threading.Thread):
         self.tap_max_distance_px = tap_max_distance_px
         self.long_press_min_duration = long_press_min_duration
         self._device = device
-        self.swap_xy = swap_xy
-        self.invert_x = invert_x
-        self.invert_y = invert_y
+        self.swap_xy, self.invert_x, self.invert_y = touch_flags_for_rotation(rotate_degrees)
         self._min_x = self._max_x = self._min_y = self._max_y = 0
         self._stop_event = threading.Event()
 

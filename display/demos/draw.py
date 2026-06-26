@@ -26,7 +26,7 @@ class DrawDemo(Demo):
     ever moves on its own -- the mark stays exactly where the tap landed
     until cleared. The two diagonals are drawn specifically because a
     swapped-x/y touch axis shows up as taps mirroring across one of them
-    (see docs/pi-setup.md's touchscreen dtparam troubleshooting section).
+    (see docs/pi-setup.md's Tuning section on DISPLAY_ROTATE_DEGREES).
     """
 
     def setup(self, screen_size):

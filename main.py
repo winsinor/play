@@ -51,20 +51,34 @@ def configure_video_driver(windowed):
         os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 
+def _rotated_size(size, degrees):
+    width, height = size
+    return (height, width) if degrees % 180 == 90 else (width, height)
+
+
 def main(argv=None):
     args = parse_args(argv)
     configure_video_driver(args.windowed)
 
     pygame.init()
 
+    # Demos always draw onto this unrotated, logical-landscape canvas;
+    # config.DISPLAY_ROTATE_DEGREES rotates it into the real display's
+    # physical orientation right before it's blitted to `screen` below.
+    canvas = pygame.Surface(config.SCREEN_SIZE)
+
     # On the Pi, kmsdrm always renders fullscreen at the display's native
-    # resolution -- no extra fullscreen flag needed.
-    screen = pygame.display.set_mode(config.SCREEN_SIZE)
+    # resolution -- no extra fullscreen flag needed. Windowed dev mode sizes
+    # the window to match what the rotated canvas will look like.
+    if args.windowed:
+        screen = pygame.display.set_mode(_rotated_size(config.SCREEN_SIZE, config.DISPLAY_ROTATE_DEGREES))
+    else:
+        screen = pygame.display.set_mode((0, 0))
     pygame.display.set_caption("Idle Display")
     pygame.mouse.set_visible(False)
 
     manager = DemoManager([demo_cls() for demo_cls in ALL_DEMOS])
-    manager.setup(screen.get_size())
+    manager.setup(canvas.get_size())
 
     input_queue = queue.Queue()
     touch_thread = TouchInputThread(
@@ -73,17 +87,15 @@ def main(argv=None):
         tap_max_duration=config.TAP_MAX_DURATION,
         tap_max_distance_px=config.TAP_MAX_DISTANCE_PX,
         long_press_min_duration=config.LONG_PRESS_MIN_DURATION,
-        swap_xy=config.TOUCH_SWAP_XY,
-        invert_x=config.TOUCH_INVERT_X,
-        invert_y=config.TOUCH_INVERT_Y,
+        rotate_degrees=config.DISPLAY_ROTATE_DEGREES,
     )
     touch_thread.start()
 
     capture = None
     if not args.no_stream:
-        capture = FrameCapture(rotate_degrees=config.STREAM_ROTATE_DEGREES)
+        capture = FrameCapture(rotate_degrees=config.DISPLAY_ROTATE_DEGREES)
         start_server(capture, config.STREAM_PORT, nav_queue=input_queue)
-        capture.set_source(screen)
+        capture.set_source(canvas)
         print(f"==> Web preview: http://<this-device-ip>:{config.STREAM_PORT}/")
 
     clock = pygame.time.Clock()
@@ -120,7 +132,11 @@ def main(argv=None):
             manager.handle_event(event)
 
         manager.update(dt)
-        manager.draw(screen)
+        manager.draw(canvas)
+        if config.DISPLAY_ROTATE_DEGREES:
+            screen.blit(pygame.transform.rotate(canvas, config.DISPLAY_ROTATE_DEGREES), (0, 0))
+        else:
+            screen.blit(canvas, (0, 0))
         pygame.display.flip()
 
         if capture is not None:

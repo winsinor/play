@@ -6,21 +6,19 @@ TAP_MAX_DURATION = 0.3
 TAP_MAX_DISTANCE_PX = 20
 LONG_PRESS_MIN_DURATION = 0.6
 
-# Software fallback for touch axis alignment, for panels where no combination
-# of the kernel's touchscreen-swapped-x-y/-inverted-x/-inverted-y dtparam
-# flags (see docs/pi-setup.md) fixes it -- e.g. because too many touchscreen
-# params stacked on one dtparam line get silently truncated by the overlay
-# parser. Leave all False if the dtparam combo already works; otherwise set
-# whichever combination here makes a tap land where you actually touched.
-TOUCH_SWAP_XY = False
-TOUCH_INVERT_X = False
-TOUCH_INVERT_Y = False
+# Single source of truth for physical mounting orientation. Demos always
+# draw onto an unrotated SCREEN_SIZE canvas; main.py rotates that canvas in
+# software before it hits the real display, and the touch thread applies
+# the matching inverse to raw touch coordinates -- so the screen and the
+# touch input can never drift out of sync with each other the way separate
+# kernel-level dtparam=rotate + touchscreen-swapped-x-y/-inverted-* flags
+# could (see docs/pi-setup.md for why that approach was dropped).
+#
+# config.txt on the Pi should have *only* dtoverlay=vc4-kms-dpi-hyperpixel4
+# -- no dtparam=rotate, no touchscreen-* params. Counterclockwise degrees,
+# one of 0/90/180/270; pick whichever makes the Draw demo show upright with
+# correct touch alignment for your physical mount. No reboot needed to
+# change this -- just restart main.py.
+DISPLAY_ROTATE_DEGREES = 90
 
 STREAM_PORT = 8000
-# The physical HyperPixel rotation is handled entirely by the KMS
-# dtparam=rotate boot config (see docs/pi-setup.md) and never touches the
-# pygame surface -- so the raw frame grabbed for the web preview is in the
-# *unrotated* logical orientation. Rotate it here purely for the preview
-# image (pygame.transform.rotate, counterclockwise); if it comes out the
-# wrong way, try -90 instead.
-STREAM_ROTATE_DEGREES = 90
