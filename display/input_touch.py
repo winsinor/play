@@ -38,10 +38,10 @@ def find_touch_device():
     return None
 
 
-def remap_touch_xy(x, y, min_x, max_x, min_y, max_y, swap_xy, invert_x, invert_y):
-    """Apply a swap/invert combo to a raw touch coordinate. Swap is applied
-    first, then per-axis inversion (using that axis's own min/max after the
-    swap). Used by TouchInputThread to undo display.config.DISPLAY_ROTATE_DEGREES
+def remap_touch_xy(x, y, min_x, max_x, min_y, max_y, swap_xy, invert_x, invert_y, canvas_width=None, canvas_height=None):
+    """Apply a swap/invert combo to a raw touch coordinate, then rescale to canvas pixels.
+    Swap is applied first, then per-axis inversion (using that axis's own min/max after the
+    swap), then rescaling to canvas dimensions. Used by TouchInputThread to undo display.config.DISPLAY_ROTATE_DEGREES
     (see touch_flags_for_rotation below)."""
     if swap_xy:
         x, y, min_x, max_x, min_y, max_y = y, x, min_y, max_y, min_x, max_x
@@ -49,6 +49,12 @@ def remap_touch_xy(x, y, min_x, max_x, min_y, max_y, swap_xy, invert_x, invert_y
         x = max_x - (x - min_x)
     if invert_y:
         y = max_y - (y - min_y)
+    
+    # Rescale from device raw range to canvas pixels
+    if canvas_width is not None and canvas_height is not None:
+        x = (x - min_x) / (max_x - min_x) * canvas_width
+        y = (y - min_y) / (max_y - min_y) * canvas_height
+    
     return x, y
 
 
@@ -80,6 +86,8 @@ class TouchInputThread(threading.Thread):
         long_press_min_duration,
         device=None,
         rotate_degrees=0,
+        canvas_width=800,
+        canvas_height=480,
     ):
         super().__init__(daemon=True)
         self.event_queue = event_queue
@@ -89,6 +97,8 @@ class TouchInputThread(threading.Thread):
         self.long_press_min_duration = long_press_min_duration
         self._device = device
         self.swap_xy, self.invert_x, self.invert_y = touch_flags_for_rotation(rotate_degrees)
+        self.canvas_width = canvas_width
+        self.canvas_height = canvas_height
         self._min_x = self._max_x = self._min_y = self._max_y = 0
         self._stop_event = threading.Event()
 
@@ -155,6 +165,7 @@ class TouchInputThread(threading.Thread):
         return remap_touch_xy(
             x, y, self._min_x, self._max_x, self._min_y, self._max_y,
             self.swap_xy, self.invert_x, self.invert_y,
+            self.canvas_width, self.canvas_height,
         )
 
     def _finish_touch(self, start_x, start_y, end_x, end_y, start_time):
