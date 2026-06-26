@@ -13,9 +13,10 @@ class Demo(ABC):
         """Called for every pygame event while this demo is active."""
 
     def handle_touch(self, event):
-        """Called with a TapEvent or LongPressEvent (screen coords) while this
-        demo is active. Swipes are handled globally by DemoManager and never
-        reach here. Optional to override -- default is a no-op."""
+        """Called with a TapEvent, PressDragEvent, or PressReleaseEvent
+        (screen coords) while this demo is active. Swipes are handled
+        globally by DemoManager and never reach here. Optional to override
+        -- default is a no-op."""
 
     @abstractmethod
     def update(self, dt):

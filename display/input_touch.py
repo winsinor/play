@@ -1,14 +1,16 @@
 """Reads the HyperPixel touchscreen directly via evdev (no X11 needed) and
 turns gestures into events on a thread-safe queue: swipe-left/right become
-NavEvents (handled globally by DemoManager), tap and long-press become
-TapEvent/LongPressEvent carrying the touch position (handled by the current
-demo, if it cares -- see Demo.handle_touch).
+NavEvents (handled globally by DemoManager), a quick tap becomes a TapEvent,
+and a press-and-hold that then moves becomes a stream of PressDragEvents
+followed by one PressReleaseEvent -- a stationary hold that never drags
+produces no event at all (see Demo.handle_touch).
 
 Runs in a background thread so it never blocks the pygame render loop. If no
 touch device is present (e.g. on a dev machine), it logs once and exits
 cleanly -- keyboard navigation still works.
 """
 
+import math
 import os
 import threading
 import time
@@ -18,7 +20,7 @@ try:
 except ImportError:  # not installed / not on Linux
     evdev = None
 
-from display.manager import LongPressEvent, NavEvent, TapEvent
+from display.manager import NavEvent, PinchZoomEvent, PressDragEvent, PressReleaseEvent, TapEvent
 
 
 def find_touch_device():
@@ -56,6 +58,15 @@ def remap_touch_xy(x, y, min_x, max_x, min_y, max_y, swap_xy, invert_x, invert_y
         y = (y - min_y) / (max_y - min_y) * canvas_height
     
     return x, y
+
+
+def pinch_scale(prev_distance, new_distance, min_distance=1e-3):
+    """Multiplicative change in two-finger separation distance between
+    consecutive pinch samples (new_distance / prev_distance), or None if
+    there's no valid prior sample yet to compare against."""
+    if prev_distance is None or prev_distance < min_distance:
+        return None
+    return new_distance / prev_distance
 
 
 def touch_flags_for_rotation(degrees):
@@ -121,6 +132,20 @@ class TouchInputThread(threading.Thread):
         start_x = start_y = None
         last_x = last_y = None
         start_time = None
+        dragging = False
+
+        # Multitouch state, only relevant once a second finger touches down
+        # (see _maybe_emit_pinch). mt_slot is the slot the next
+        # ABS_MT_POSITION_*/ABS_MT_TRACKING_ID event applies to (set by
+        # ABS_MT_SLOT); primary_slot is whichever slot drives the
+        # single-touch gesture machine above, so a second finger's position
+        # updates never feed into (and corrupt) a tap/swipe/drag already in
+        # progress on the first finger.
+        mt_slot = 0
+        primary_slot = None
+        active_slots = set()
+        slot_positions = {}
+        pinch_prev_distance = None
 
         try:
             for event in device.read_loop():
@@ -131,31 +156,59 @@ class TouchInputThread(threading.Thread):
                     evdev.ecodes.ABS_MT_POSITION_X,
                     evdev.ecodes.ABS_X,
                 ):
-                    last_x = event.value
-                    if start_x is None:
-                        start_x = event.value
-                        start_time = time.monotonic()
+                    slot_positions.setdefault(mt_slot, [None, None])[0] = event.value
+                    if primary_slot is None:
+                        primary_slot = mt_slot
+                    if mt_slot == primary_slot:
+                        last_x = event.value
+                        if start_x is None:
+                            start_x = event.value
+                            start_time = time.monotonic()
 
                 elif event.type == evdev.ecodes.EV_ABS and event.code in (
                     evdev.ecodes.ABS_MT_POSITION_Y,
                     evdev.ecodes.ABS_Y,
                 ):
-                    last_y = event.value
-                    if start_y is None:
-                        start_y = event.value
+                    slot_positions.setdefault(mt_slot, [None, None])[1] = event.value
+                    if primary_slot is None:
+                        primary_slot = mt_slot
+                    if mt_slot == primary_slot:
+                        last_y = event.value
+                        if start_y is None:
+                            start_y = event.value
+
+                elif event.type == evdev.ecodes.EV_ABS and event.code == evdev.ecodes.ABS_MT_SLOT:
+                    mt_slot = event.value
+
+                elif event.type == evdev.ecodes.EV_ABS and event.code == evdev.ecodes.ABS_MT_TRACKING_ID:
+                    if event.value == -1:
+                        active_slots.discard(mt_slot)
+                        slot_positions.pop(mt_slot, None)
+                        pinch_prev_distance = None
+                        if mt_slot == primary_slot:
+                            # the finger driving the single-touch gesture
+                            # lifted -- finish it, then (rare) if another
+                            # finger is still down, hand single-touch
+                            # tracking over to it for whatever comes next.
+                            self._finish_touch(start_x, start_y, last_x, last_y, start_time, dragging)
+                            start_x = start_y = last_x = last_y = start_time = None
+                            dragging = False
+                            primary_slot = next(iter(active_slots), None)
+                    else:
+                        active_slots.add(mt_slot)
 
                 elif event.type == evdev.ecodes.EV_KEY and event.code == evdev.ecodes.BTN_TOUCH:
                     if event.value == 0:
-                        self._finish_touch(start_x, start_y, last_x, last_y, start_time)
+                        self._finish_touch(start_x, start_y, last_x, last_y, start_time, dragging)
                         start_x = start_y = last_x = last_y = start_time = None
+                        dragging = False
+                        primary_slot = None
+                        active_slots.clear()
+                        slot_positions.clear()
+                        pinch_prev_distance = None
 
-                elif (
-                    event.type == evdev.ecodes.EV_ABS
-                    and event.code == evdev.ecodes.ABS_MT_TRACKING_ID
-                    and event.value == -1
-                ):
-                    self._finish_touch(start_x, start_y, last_x, last_y, start_time)
-                    start_x = start_y = last_x = last_y = start_time = None
+                dragging = self._maybe_emit_drag(start_x, start_y, last_x, last_y, start_time, dragging)
+                pinch_prev_distance = self._maybe_emit_pinch(active_slots, slot_positions, pinch_prev_distance)
         except OSError as exc:
             print(f"[input_touch] touch device error, stopping touch input: {exc}")
 
@@ -168,12 +221,67 @@ class TouchInputThread(threading.Thread):
             self.canvas_width, self.canvas_height,
         )
 
-    def _finish_touch(self, start_x, start_y, end_x, end_y, start_time):
+    def _maybe_emit_pinch(self, active_slots, slot_positions, prev_distance):
+        """Called after every event. Once two fingers are down and both their
+        positions are known, emits a PinchZoomEvent carrying the change in
+        their separation since the last sample (see pinch_scale) -- but only
+        if that separation actually changed, since the docstring on
+        PinchZoomEvent promises it's sent only "while ... distance apart is
+        changing", and plenty of events (slot switches, an axis re-reported
+        at its same value) don't move either finger at all. Returns the
+        distance to compare against next time, or None if fewer than two
+        fingers are currently down (so a fresh baseline gets established
+        next time a second finger touches down, rather than comparing across
+        an unrelated earlier pinch)."""
+        if len(active_slots) < 2:
+            return None
+        points = []
+        for slot in sorted(active_slots)[:2]:
+            pos = slot_positions.get(slot)
+            if pos is None or pos[0] is None or pos[1] is None:
+                return prev_distance  # not all positions known yet -- keep waiting
+            points.append(self._remap(pos[0], pos[1]))
+        distance = math.hypot(points[0][0] - points[1][0], points[0][1] - points[1][1])
+        scale = pinch_scale(prev_distance, distance)
+        if scale is not None and distance != prev_distance:
+            self.event_queue.put(PinchZoomEvent(scale))
+        return distance
+
+    def _maybe_emit_drag(self, start_x, start_y, last_x, last_y, start_time, dragging):
+        """Called after every position update for the touch in progress (if
+        any). Once a hold has both lasted long_press_min_duration and moved
+        past tap_max_distance_px, it becomes a drag: emits a PressDragEvent
+        for this position and every subsequent one, and once started never
+        reverts back to non-dragging for this touch (checked by the caller,
+        which skips re-entering this method once a touch has ended)."""
+        if start_x is None or start_y is None or last_x is None or last_y is None or start_time is None:
+            return dragging
+        if self.swap_xy or self.invert_x or self.invert_y:
+            start_x, start_y = self._remap(start_x, start_y)
+            last_x, last_y = self._remap(last_x, last_y)
+        if not dragging:
+            distance = max(abs(last_x - start_x), abs(last_y - start_y))
+            elapsed = time.monotonic() - start_time
+            if elapsed < self.long_press_min_duration or distance < self.tap_max_distance_px:
+                return dragging
+            dragging = True
+        self.event_queue.put(PressDragEvent(last_x, last_y, start_x, start_y))
+        return dragging
+
+    def _finish_touch(self, start_x, start_y, end_x, end_y, start_time, dragging):
         if start_x is None or end_x is None or start_time is None:
             return
         if self.swap_xy or self.invert_x or self.invert_y:
             start_x, start_y = self._remap(start_x, start_y)
             end_x, end_y = self._remap(end_x, end_y)
+
+        x = end_x if end_x is not None else start_x
+        y = end_y if end_y is not None else start_y
+
+        if dragging:
+            self.event_queue.put(PressReleaseEvent(x, y, start_x, start_y))
+            return
+
         delta_x = end_x - start_x
         delta_y = (end_y - start_y) if (start_y is not None and end_y is not None) else 0
         duration = time.monotonic() - start_time
@@ -185,11 +293,10 @@ class TouchInputThread(threading.Thread):
 
         distance = max(abs(delta_x), abs(delta_y))
         if distance > self.tap_max_distance_px:
-            return  # an ambiguous drag that wasn't a swipe -- ignore
+            return  # an ambiguous drag that wasn't a swipe and never reached drag-mode -- ignore
 
-        x = end_x if end_x is not None else start_x
-        y = end_y if end_y is not None else start_y
         if duration <= self.tap_max_duration:
             self.event_queue.put(TapEvent(x, y))
-        elif duration >= self.long_press_min_duration:
-            self.event_queue.put(LongPressEvent(x, y))
+        # else: a stationary hold past tap_max_duration that never moved far
+        # enough to start dragging -- intentionally a no-op, since hold-to-reset
+        # has been removed project-wide.

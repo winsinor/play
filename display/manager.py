@@ -17,9 +17,39 @@ class TapEvent:
 
 
 @dataclass(frozen=True)
-class LongPressEvent:
+class PressDragEvent:
+    """Sent repeatedly while a press-and-hold gesture is being dragged --
+    (x, y) is the current finger position, (start_x, start_y) is where the
+    press began. Demos that care can use this to preview an action (e.g. a
+    slingshot-style launch) before it's committed by a PressReleaseEvent."""
+
     x: int
     y: int
+    start_x: int
+    start_y: int
+
+
+@dataclass(frozen=True)
+class PressReleaseEvent:
+    """Sent once when a PressDragEvent gesture ends (finger lifts). Carries
+    the same fields as PressDragEvent so the demo can commit whatever it was
+    previewing using the final drag position."""
+
+    x: int
+    y: int
+    start_x: int
+    start_y: int
+
+
+@dataclass(frozen=True)
+class PinchZoomEvent:
+    """Sent repeatedly while two fingers are down and their distance apart is
+    changing -- scale is the multiplicative change in that distance since the
+    last PinchZoomEvent (or since the second finger touched down), so a demo
+    that cares can just do `zoom *= event.scale` (and clamp) rather than
+    tracking gesture-start state itself."""
+
+    scale: float
 
 
 class DemoManager:

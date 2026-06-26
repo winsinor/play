@@ -6,13 +6,18 @@ import numpy as np
 import pygame
 
 from display.demos.base import Demo
-from display.manager import LongPressEvent, TapEvent
+from display.manager import PinchZoomEvent, PressDragEvent, PressReleaseEvent, TapEvent
 
 BG_COLOR = (8, 8, 16)
 STAR_COLOR = (255, 225, 140)
 # Trails fade from this fraction of a planet's own color (near-black but not
 # quite, so they stay visible against BG_COLOR) up to its full color.
 TRAIL_DARK_FRACTION = 0.15
+# The star's own trail only shows up while it's actually drifting noticeably
+# (e.g. right after a heavy absorption kicks it), so it's drawn much lighter
+# than a planet's -- short and faint rather than a constant fixture.
+STAR_TRAIL_DARK_FRACTION = 0.6
+STAR_TRAIL_LENGTH = 20
 
 
 class NBodyDemo(Demo):
@@ -57,8 +62,33 @@ class NBodyDemo(Demo):
     # Fraction of impact speed imparted to fragments as outward ejecta speed.
     EJECTA_SPEED_FACTOR = 0.4
 
+    # Press-and-hold-then-drag launch: speed is proportional to drag
+    # distance (in screen pixels), capped so a wild drag can't fling a body
+    # off at an unplayable speed.
+    LAUNCH_SPEED_SCALE = 2.0
+    LAUNCH_MAX_SPEED = 600.0
+    # Below this drag distance, treat it as a hold that never really
+    # dragged -- release does nothing rather than launching at near-zero
+    # speed in a meaningless direction.
+    MIN_LAUNCH_DISTANCE = 4.0
+    TRAJECTORY_PREVIEW_STEPS = 90
+    TRAJECTORY_PREVIEW_DT = 1.0 / 60.0
+    LAUNCH_PREVIEW_COLOR = (235, 235, 245)
+
+    # Pinch-to-zoom. The default view (zoom == 1) is already the most
+    # zoomed-in the camera goes -- pinching can only zoom back out from
+    # there, down to where the visible area matches the same 10x-screen
+    # tracking/culling window bodies are allowed to roam in before they're
+    # culled (see TRACKING_AREA_MULTIPLIER), so you're never looking at
+    # emptiness beyond where anything could possibly still be.
+    ZOOM_MAX = 1.0
+    ZOOM_MIN = 1.0 / TRACKING_AREA_MULTIPLIER
+
     def setup(self, screen_size):
         self.width, self.height = screen_size
+        self.zoom = self.ZOOM_MAX
+        self._launch_origin_world = None
+        self._launch_current_world = None
         self._spawn_initial_system()
 
     def _spawn_initial_system(self):
@@ -67,7 +97,7 @@ class NBodyDemo(Demo):
         self.velocities = np.array([[0.0, 0.0]])
         self.masses = np.array([self.STAR_MASS])
         self.colors = [STAR_COLOR]
-        self.trails = [deque(maxlen=self.TRAIL_LENGTH)]
+        self.trails = [deque(maxlen=STAR_TRAIL_LENGTH)]
         self._next_color_index = 0
 
         rng = np.random.default_rng()
@@ -102,21 +132,37 @@ class NBodyDemo(Demo):
         if isinstance(event, TapEvent):
             world_x, world_y = self._screen_to_world(event.x, event.y)
             self._add_body(world_x, world_y)
-        elif isinstance(event, LongPressEvent):
-            self._spawn_initial_system()
+        elif isinstance(event, PressDragEvent):
+            # The origin is pinned in world space the moment the drag starts
+            # (using the camera offset at that instant) so it stays put on
+            # screen even as the star's drift shifts the camera over the
+            # course of a slow drag; the live end point is re-converted every
+            # event so it tracks the finger's current screen position.
+            if self._launch_origin_world is None:
+                self._launch_origin_world = np.array(self._screen_to_world(event.start_x, event.start_y))
+            self._launch_current_world = np.array(self._screen_to_world(event.x, event.y))
+        elif isinstance(event, PressReleaseEvent):
+            if self._launch_origin_world is not None:
+                release_world = np.array(self._screen_to_world(event.x, event.y))
+                self._launch_body(self._launch_origin_world, release_world)
+            self._launch_origin_world = None
+            self._launch_current_world = None
+        elif isinstance(event, PinchZoomEvent):
+            self.zoom = float(np.clip(self.zoom * event.scale, self.ZOOM_MIN, self.ZOOM_MAX))
 
-    def _camera_offset(self):
-        """World-space vector from screen center to the star. The star is
-        left free to drift (no more snapping it back, which caused a visible
-        jump every few seconds); instead the camera follows it, so this same
-        offset is subtracted from every world position at draw time and
-        added to every tap to map it back into world space."""
+    def _world_to_screen(self, pos):
+        """Maps a world-space position to where it lands on screen: the
+        camera follows the star (left free to drift, rather than being
+        snapped back, which used to cause a visible jump every few seconds)
+        and zoom scales distance from the star around the screen center."""
         cx, cy = self.width / 2, self.height / 2
-        return self.positions[0] - np.array([cx, cy])
+        star_pos = self.positions[0]
+        return (np.asarray(pos, dtype=float) - star_pos) * self.zoom + np.array([cx, cy])
 
     def _screen_to_world(self, x, y):
-        offset = self._camera_offset()
-        return x + offset[0], y + offset[1]
+        cx, cy = self.width / 2, self.height / 2
+        star_pos = self.positions[0]
+        return tuple((np.array([x, y], dtype=float) - np.array([cx, cy])) / self.zoom + star_pos)
 
     def _add_body(self, x, y):
         # New bodies are launched into a circular orbit around the current
@@ -134,21 +180,73 @@ class NBodyDemo(Demo):
         speed = math.sqrt(self.G * star_mass / r)
         new_velocity = tangential * speed
 
-        # Random mass between PLANET_MASS_MIN and PLANET_MASS_MAX
         planet_mass = np.random.uniform(self.PLANET_MASS_MIN, self.PLANET_MASS_MAX)
+        self._spawn_body([float(x), float(y)], new_velocity, planet_mass)
 
+    def _launch_body(self, origin, release_point):
+        """Resolve a press-drag-release gesture into a new body launched
+        from origin (where the hold started) with velocity pointing
+        opposite the drag (like a slingshot/catapult), magnitude
+        proportional to how far it was dragged."""
+        drag_vector = release_point - origin
+        distance = float(np.linalg.norm(drag_vector))
+        if distance < self.MIN_LAUNCH_DISTANCE:
+            return
+        speed = min(distance * self.LAUNCH_SPEED_SCALE, self.LAUNCH_MAX_SPEED)
+        velocity = -(drag_vector / distance) * speed
+        planet_mass = np.random.uniform(self.PLANET_MASS_MIN, self.PLANET_MASS_MAX)
+        self._spawn_body(origin, velocity, planet_mass)
+
+    def _spawn_body(self, pos, velocity, mass):
         # Conserve momentum: the new body's momentum must be balanced by an
-        # equal-and-opposite kick to the star, otherwise every tap injects
+        # equal-and-opposite kick to the star, otherwise every add injects
         # net momentum into the system and the star (which dominates the
-        # system's center of mass) picks up speed with every tap.
+        # system's center of mass) picks up speed with every add.
+        star_idx = int(np.argmax(self.masses))
+        star_mass = self.masses[star_idx]
+        velocity = np.asarray(velocity, dtype=float)
         self.velocities[star_idx] = (
-            self.velocities[star_idx] - (planet_mass * new_velocity) / star_mass
+            self.velocities[star_idx] - (mass * velocity) / star_mass
         )
-
-        self.positions = np.vstack([self.positions, [float(x), float(y)]])
-        self.velocities = np.vstack([self.velocities, new_velocity])
-        self.masses = np.append(self.masses, planet_mass)
+        self.positions = np.vstack([self.positions, pos])
+        self.velocities = np.vstack([self.velocities, velocity])
+        self.masses = np.append(self.masses, mass)
         self._add_color_and_trail()
+
+    def _predict_launch_trajectory(self):
+        """Forward-simulate a massless test particle launched from the
+        current drag state under the live system's gravity, without
+        mutating any real state -- so a drag in progress can preview where
+        the body would actually go if released right now. Other bodies are
+        treated as frozen at their current positions for the duration of
+        the preview (cheap, and plenty for "which way will it go") rather
+        than also forward-simulating the whole n-body system."""
+        if self._launch_origin_world is None or self._launch_current_world is None:
+            return []
+        drag_vector = self._launch_current_world - self._launch_origin_world
+        distance = float(np.linalg.norm(drag_vector))
+        if distance < self.MIN_LAUNCH_DISTANCE:
+            return []
+        speed = min(distance * self.LAUNCH_SPEED_SCALE, self.LAUNCH_MAX_SPEED)
+        velocity = -(drag_vector / distance) * speed
+
+        pos = self._launch_origin_world.copy()
+        vel = velocity.copy()
+        points = [pos.copy()]
+        star_pos = self.positions[0]
+        star_radius = self._radius_for_mass(self.masses[0])
+        collision_radius = star_radius * self.COLLISION_RADIUS_FRACTION
+        for _ in range(self.TRAJECTORY_PREVIEW_STEPS):
+            diffs = self.positions - pos
+            dist_sq = np.sum(diffs * diffs, axis=1)
+            inv_dist_cubed = (dist_sq + self.SOFTENING**2) ** -1.5
+            accel = self.G * np.sum(self.masses[:, None] * inv_dist_cubed[:, None] * diffs, axis=0)
+            vel = vel + accel * self.TRAJECTORY_PREVIEW_DT
+            pos = pos + vel * self.TRAJECTORY_PREVIEW_DT
+            points.append(pos.copy())
+            if float(np.linalg.norm(pos - star_pos)) <= collision_radius:
+                break  # would be absorbed by the star -- no point tracing further
+        return points
 
     def update(self, dt):
         if len(self.masses) == 0:
@@ -300,10 +398,8 @@ class NBodyDemo(Demo):
         return bodies
 
     def _update_trails(self):
-        star_mass = self.masses.max() if len(self.masses) else 0.0
-        for i, (pos, mass) in enumerate(zip(self.positions, self.masses)):
-            if mass < star_mass * 0.5:
-                self.trails[i].append((float(pos[0]), float(pos[1])))
+        for i, pos in enumerate(self.positions):
+            self.trails[i].append((float(pos[0]), float(pos[1])))
 
     def _cull_escaped_bodies(self):
         # Centered on the star's current (drifting) position rather than the
@@ -323,16 +419,37 @@ class NBodyDemo(Demo):
 
     def draw(self, surface):
         surface.fill(BG_COLOR)
-        offset = self._camera_offset()
-        star_mass = self.masses.max() if len(self.masses) else 0.0
-        for i, (pos, mass) in enumerate(zip(self.positions, self.masses)):
-            is_star = mass >= star_mass * 0.5
-            color = STAR_COLOR if is_star else self.colors[i]
-            if not is_star:
-                _draw_trail(surface, self.trails[i], color, offset)
-            radius = int(self._radius_for_mass(mass))
-            screen_pos = pos - offset
-            pygame.draw.circle(surface, color, (int(screen_pos[0]), int(screen_pos[1])), radius)
+        n = len(self.masses)
+        # The star (always index 0) is drawn last -- trail and body -- so it
+        # always renders on top of every planet trail and body, never the
+        # other way around.
+        for i in range(1, n):
+            color = self.colors[i]
+            _draw_trail(surface, self.trails[i], color, self._world_to_screen)
+            self._draw_body(surface, self.positions[i], self.masses[i], color)
+
+        if n > 0:
+            _draw_trail(
+                surface, self.trails[0], STAR_COLOR, self._world_to_screen,
+                dark_fraction=STAR_TRAIL_DARK_FRACTION,
+            )
+            self._draw_body(surface, self.positions[0], self.masses[0], STAR_COLOR)
+
+        self._draw_launch_preview(surface)
+
+    def _draw_body(self, surface, pos, mass, color):
+        radius = max(1, int(self._radius_for_mass(mass) * self.zoom))
+        screen_pos = self._world_to_screen(pos)
+        pygame.draw.circle(surface, color, (int(screen_pos[0]), int(screen_pos[1])), radius)
+
+    def _draw_launch_preview(self, surface):
+        points = self._predict_launch_trajectory()
+        if len(points) < 2:
+            return
+        screen_points = [tuple(float(v) for v in self._world_to_screen(p)) for p in points]
+        pygame.draw.lines(surface, self.LAUNCH_PREVIEW_COLOR, False, screen_points, 1)
+        ox, oy = screen_points[0]
+        pygame.draw.circle(surface, self.LAUNCH_PREVIEW_COLOR, (int(ox), int(oy)), 5, 1)
 
 
 def _planet_color(seed_index):
@@ -344,19 +461,17 @@ def _planet_color(seed_index):
     return (int(r * 255), int(g * 255), int(b * 255))
 
 
-def _draw_trail(surface, trail, color, offset):
+def _draw_trail(surface, trail, color, to_screen, dark_fraction=TRAIL_DARK_FRACTION):
     pts = list(trail)
     n = len(pts)
     if n < 2:
         return
-    dark = tuple(int(c * TRAIL_DARK_FRACTION) for c in color)
+    dark = tuple(int(c * dark_fraction) for c in color)
     step = max(1.0, n - 1)
-    ox, oy = offset
+    screen_pts = [tuple(float(v) for v in to_screen(p)) for p in pts]
     for i in range(1, n):
         line_color = _lerp_color(dark, color, i / step)
-        p0 = (pts[i - 1][0] - ox, pts[i - 1][1] - oy)
-        p1 = (pts[i][0] - ox, pts[i][1] - oy)
-        pygame.draw.line(surface, line_color, p0, p1, 2)
+        pygame.draw.line(surface, line_color, screen_pts[i - 1], screen_pts[i], 2)
 
 
 def _lerp_color(c0, c1, t):

@@ -5,7 +5,7 @@ import pygame
 import pygame.surfarray
 
 from display.demos.base import Demo
-from display.manager import LongPressEvent, TapEvent
+from display.manager import TapEvent
 
 CELL_SIZE = 8
 SEED_ALIVE_PROBABILITY = 0.25
@@ -47,8 +47,6 @@ class LifeDemo(Demo):
     def handle_touch(self, event):
         if isinstance(event, TapEvent):
             self._toggle_cell(event.x, event.y)
-        elif isinstance(event, LongPressEvent):
-            self._start_new_generation()
 
     def _toggle_cell(self, x, y):
         col = (x - self.offset_x) // CELL_SIZE

@@ -2,7 +2,7 @@ import numpy as np
 import pygame
 
 from display.demos.base import Demo
-from display.manager import LongPressEvent, TapEvent
+from display.manager import TapEvent
 
 # See compute_flock_acceleration's docstring/comments for why separation needs
 # its own pixel-scale factor (distinct from perception_radius itself).
@@ -54,8 +54,6 @@ class BoidsDemo(Demo):
     def handle_touch(self, event):
         if isinstance(event, TapEvent):
             self._add_boid(event.x, event.y)
-        elif isinstance(event, LongPressEvent):
-            self._spawn_random(self.NUM_BOIDS)
 
     def _add_boid(self, x, y):
         if len(self.positions) >= self.MAX_BOIDS:

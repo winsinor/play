@@ -5,7 +5,7 @@ import numpy as np
 import pygame
 
 from display.demos.base import Demo
-from display.manager import LongPressEvent, TapEvent
+from display.manager import TapEvent
 
 BG_COLOR = (9, 10, 18)
 PEG_COLOR = (150, 165, 190)
@@ -118,8 +118,6 @@ class PlinkoDemo(Demo):
         if isinstance(event, TapEvent):
             if self.phase == "settled":
                 self._start_new_round()
-        elif isinstance(event, LongPressEvent):
-            self._start_new_round()
 
     def update(self, dt):
         if self.phase == "dropping":

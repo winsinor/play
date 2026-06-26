@@ -3,7 +3,7 @@ import colorsys
 import pygame
 
 from display.demos.base import Demo
-from display.manager import LongPressEvent, TapEvent
+from display.manager import TapEvent
 
 BG_COLOR = (10, 10, 18)
 GRID_COLOR = (40, 44, 58)
@@ -42,8 +42,6 @@ class DrawDemo(Demo):
     def handle_touch(self, event):
         if isinstance(event, TapEvent):
             self._add_mark(event.x, event.y)
-        elif isinstance(event, LongPressEvent):
-            self.marks = []
 
     def _add_mark(self, x, y):
         color = _mark_color(self._next_color_index)
