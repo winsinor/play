@@ -41,6 +41,7 @@ class NBodyDemo(Demo):
     MAX_DRAW_RADIUS = 18
     TRAIL_LENGTH = 90  # ~1.5s at 60fps
     RECENTER_INTERVAL = 5.0  # seconds between recentering the star
+    COLLISION_RADIUS_FRACTION = 0.5  # 50% of star's visual radius
 
     def setup(self, screen_size):
         self.width, self.height = screen_size
@@ -133,8 +134,44 @@ class NBodyDemo(Demo):
         self.velocities = self.velocities + accel * dt
         self.positions = self.positions + self.velocities * dt
         self._update_trails()
+        self._check_collisions()
         self._cull_escaped_bodies()
         self._recenter_star_if_needed(dt)
+
+    def _check_collisions(self):
+        """Check if any planets have passed too close to the star and absorb them.
+        Planets within COLLISION_RADIUS_FRACTION of the star's visual radius are absorbed."""
+        if len(self.masses) < 2:
+            return
+        
+        star_pos = self.positions[0]
+        star_mass = self.masses[0]
+        star_radius = np.clip(
+            star_mass ** (1 / 3) * self.RADIUS_SCALE, 
+            self.MIN_DRAW_RADIUS, 
+            self.MAX_DRAW_RADIUS
+        )
+        collision_radius = star_radius * self.COLLISION_RADIUS_FRACTION
+        
+        # Find planets to absorb (indices > 0, since star is at index 0)
+        to_absorb = []
+        for i in range(1, len(self.masses)):
+            dist = float(np.linalg.norm(self.positions[i] - star_pos))
+            if dist <= collision_radius:
+                to_absorb.append(i)
+        
+        # Absorb planets (iterate in reverse to avoid index shifting)
+        for i in reversed(to_absorb):
+            star_mass += self.masses[i]
+            self.positions = np.delete(self.positions, i, axis=0)
+            self.velocities = np.delete(self.velocities, i, axis=0)
+            self.masses = np.delete(self.masses, i, axis=0)
+            self.colors.pop(i)
+            self.trails.pop(i)
+        
+        # Update star mass
+        if len(to_absorb) > 0:
+            self.masses[0] = star_mass
 
     def _recenter_star_if_needed(self, dt):
         """Every RECENTER_INTERVAL seconds, snap the star back to the center
