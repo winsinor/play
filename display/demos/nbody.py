@@ -268,60 +268,66 @@ class NBodyDemo(Demo):
 
     def _check_collisions(self):
         """Check if any planets have passed too close to the star and absorb them.
-        Planets within COLLISION_RADIUS_FRACTION of the star's visual radius are absorbed."""
+        Planets within COLLISION_RADIUS_FRACTION of the star's visual radius are absorbed.
+        Distances to every planet are computed in one vectorized batch rather
+        than via a per-planet np.linalg.norm call -- with dozens of bodies,
+        the per-call overhead of looping in Python adds up every frame."""
         if len(self.masses) < 2:
             return
 
         star_pos = self.positions[0]
-        star_mass = self.masses[0]
-        star_radius = self._radius_for_mass(star_mass)
-        collision_radius = star_radius * self.COLLISION_RADIUS_FRACTION
-        
-        # Find planets to absorb (indices > 0, since star is at index 0)
-        to_absorb = []
-        for i in range(1, len(self.masses)):
-            dist = float(np.linalg.norm(self.positions[i] - star_pos))
-            if dist <= collision_radius:
-                to_absorb.append(i)
-        
-        # Absorb planets (iterate in reverse to avoid index shifting)
-        for i in reversed(to_absorb):
-            star_mass += self.masses[i]
-            self.positions = np.delete(self.positions, i, axis=0)
-            self.velocities = np.delete(self.velocities, i, axis=0)
-            self.masses = np.delete(self.masses, i, axis=0)
-            self.colors.pop(i)
-            self.trails.pop(i)
-        
-        # Update star mass
-        if len(to_absorb) > 0:
-            self.masses[0] = star_mass
+        collision_radius = self._radius_for_mass(self.masses[0]) * self.COLLISION_RADIUS_FRACTION
+
+        diffs = self.positions[1:] - star_pos
+        dists = np.sqrt(np.sum(diffs * diffs, axis=1))
+        to_absorb = np.nonzero(dists <= collision_radius)[0] + 1  # +1: shift back into full-array indices
+        if len(to_absorb) == 0:
+            return
+
+        self.masses[0] += self.masses[to_absorb].sum()
+        keep = np.ones(len(self.masses), dtype=bool)
+        keep[to_absorb] = False
+        self.positions = self.positions[keep]
+        self.velocities = self.velocities[keep]
+        self.masses = self.masses[keep]
+        self.colors = [c for c, k in zip(self.colors, keep) if k]
+        self.trails = [t for t, k in zip(self.trails, keep) if k]
 
     def _check_planet_collisions(self):
         """Check planets (indices > 0; the star at index 0 is handled
         separately by _check_collisions) against each other and resolve any
         that overlap, by either merging or shattering them. Operates on a
         snapshot of the current arrays so resolving one pair never disturbs
-        the indices used to resolve another pair in the same frame."""
+        the indices used to resolve another pair in the same frame.
+
+        The full pairwise distance matrix is computed in one vectorized numpy
+        batch (same trick as compute_gravitational_acceleration) instead of
+        calling np.linalg.norm per pair in a Python double loop -- that loop
+        used to cost O(n^2) *Python-level* numpy calls every frame even when
+        nothing was colliding. Only candidate colliding pairs (almost always
+        zero) go through the still-Python greedy claim loop below."""
         n = len(self.masses)
         if n < 3:  # need the star plus at least 2 planets
             return
 
         radii = self._radius_for_mass(self.masses)
+        planet_pos = self.positions[1:]
+        planet_radii = radii[1:]
+        diffs = planet_pos[:, None, :] - planet_pos[None, :, :]
+        dist = np.sqrt(np.sum(diffs * diffs, axis=2))
+        threshold = (planet_radii[:, None] + planet_radii[None, :]) * self.PLANET_COLLISION_RADIUS_FRACTION
+        colliding = np.triu(dist <= threshold, k=1)
+        local_i, local_j = np.nonzero(colliding)
+
         claimed = np.zeros(n, dtype=bool)
         pairs = []
-        for i in range(1, n):
-            if claimed[i]:
+        for li, lj in zip(local_i, local_j):
+            i, j = int(li) + 1, int(lj) + 1  # +1: shift back into full-array indices (star is index 0)
+            if claimed[i] or claimed[j]:
                 continue
-            for j in range(i + 1, n):
-                if claimed[j]:
-                    continue
-                dist = float(np.linalg.norm(self.positions[i] - self.positions[j]))
-                if dist <= (radii[i] + radii[j]) * self.PLANET_COLLISION_RADIUS_FRACTION:
-                    pairs.append((i, j))
-                    claimed[i] = True
-                    claimed[j] = True
-                    break
+            pairs.append((i, j))
+            claimed[i] = True
+            claimed[j] = True
 
         if not pairs:
             return
@@ -420,33 +426,40 @@ class NBodyDemo(Demo):
     def draw(self, surface):
         surface.fill(BG_COLOR)
         n = len(self.masses)
+        if n == 0:
+            return
+        # Screen positions and draw radii for every body are computed once,
+        # in two vectorized numpy calls, rather than recomputing the camera
+        # transform and radius formula from scratch inside a per-body call --
+        # with dozens of bodies redone every frame, that per-call overhead
+        # was a meaningful chunk of frame time on its own.
+        screen_positions = self._world_to_screen(self.positions)
+        radii = np.maximum(1, (self._radius_for_mass(self.masses) * self.zoom)).astype(int)
+
         # The star (always index 0) is drawn last -- trail and body -- so it
         # always renders on top of every planet trail and body, never the
         # other way around.
         for i in range(1, n):
             color = self.colors[i]
             _draw_trail(surface, self.trails[i], color, self._world_to_screen)
-            self._draw_body(surface, self.positions[i], self.masses[i], color)
+            self._draw_body(surface, screen_positions[i], radii[i], color)
 
-        if n > 0:
-            _draw_trail(
-                surface, self.trails[0], STAR_COLOR, self._world_to_screen,
-                dark_fraction=STAR_TRAIL_DARK_FRACTION,
-            )
-            self._draw_body(surface, self.positions[0], self.masses[0], STAR_COLOR)
+        _draw_trail(
+            surface, self.trails[0], STAR_COLOR, self._world_to_screen,
+            dark_fraction=STAR_TRAIL_DARK_FRACTION,
+        )
+        self._draw_body(surface, screen_positions[0], radii[0], STAR_COLOR)
 
         self._draw_launch_preview(surface)
 
-    def _draw_body(self, surface, pos, mass, color):
-        radius = max(1, int(self._radius_for_mass(mass) * self.zoom))
-        screen_pos = self._world_to_screen(pos)
-        pygame.draw.circle(surface, color, (int(screen_pos[0]), int(screen_pos[1])), radius)
+    def _draw_body(self, surface, screen_pos, radius, color):
+        pygame.draw.circle(surface, color, (int(screen_pos[0]), int(screen_pos[1])), int(radius))
 
     def _draw_launch_preview(self, surface):
         points = self._predict_launch_trajectory()
         if len(points) < 2:
             return
-        screen_points = [tuple(float(v) for v in self._world_to_screen(p)) for p in points]
+        screen_points = self._world_to_screen(np.array(points)).tolist()
         pygame.draw.lines(surface, self.LAUNCH_PREVIEW_COLOR, False, screen_points, 1)
         ox, oy = screen_points[0]
         pygame.draw.circle(surface, self.LAUNCH_PREVIEW_COLOR, (int(ox), int(oy)), 5, 1)
@@ -461,17 +474,31 @@ def _planet_color(seed_index):
     return (int(r * 255), int(g * 255), int(b * 255))
 
 
+# Trails are drawn as this many flat-colored polyline segments (each a
+# single pygame.draw.lines call) instead of one pygame.draw.line call per
+# point -- with TRAIL_LENGTH=90 and dozens of bodies on screen, one draw
+# call per segment per body per frame was the single biggest cost in the
+# whole demo. Bucketing trades a perfectly smooth gradient for a handful of
+# visible color steps, which is not noticeable at trail scale.
+TRAIL_COLOR_BUCKETS = 6
+
+
 def _draw_trail(surface, trail, color, to_screen, dark_fraction=TRAIL_DARK_FRACTION):
-    pts = list(trail)
-    n = len(pts)
+    n = len(trail)
     if n < 2:
         return
+    # One vectorized batch transform for every point in the trail, instead of
+    # calling to_screen() once per point.
+    screen_pts = to_screen(np.array(trail, dtype=float)).tolist()
     dark = tuple(int(c * dark_fraction) for c in color)
-    step = max(1.0, n - 1)
-    screen_pts = [tuple(float(v) for v in to_screen(p)) for p in pts]
-    for i in range(1, n):
-        line_color = _lerp_color(dark, color, i / step)
-        pygame.draw.line(surface, line_color, screen_pts[i - 1], screen_pts[i], 2)
+    buckets = min(TRAIL_COLOR_BUCKETS, n - 1)
+    edges = np.linspace(0, n - 1, buckets + 1).round().astype(int)
+    for b in range(buckets):
+        start, end = edges[b], edges[b + 1]
+        if end <= start:
+            continue
+        line_color = _lerp_color(dark, color, end / (n - 1))
+        pygame.draw.lines(surface, line_color, False, screen_pts[start : end + 1], 2)
 
 
 def _lerp_color(c0, c1, t):

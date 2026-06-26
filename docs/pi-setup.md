@@ -160,8 +160,9 @@ All the knobs live in `display/config.py`:
   cross (0.8 = 80%) before it's recognized, rather than mistaken for a pinch
   or a slingshot drag
 - `TAP_MAX_DURATION` / `TAP_MAX_DISTANCE_PX` — what counts as a "tap" vs a drag
-- `LONG_PRESS_MIN_DURATION` — how long a held touch needs to last to count as
-  a long press instead of a tap
+- `LONG_PRESS_MIN_DURATION` — how long a held touch needs to last before it
+  can start a press-and-drag (e.g. the nbody demo's slingshot planet launch)
+  instead of just being a tap
 
 Per-demo parameters (boid count/speed, maze cell size/animation speed,
 fractal zoom targets/rate, DVD corner-hit timing, snake move speed) are

@@ -4,7 +4,7 @@ FPS = 60
 SWIPE_THRESHOLD_FRACTION = 0.8  # fraction of screen width a swipe must cross
 TAP_MAX_DURATION = 0.3
 TAP_MAX_DISTANCE_PX = 20
-LONG_PRESS_MIN_DURATION = 2.0
+LONG_PRESS_MIN_DURATION = 0.5  # how long a hold must last before it can start a launch drag
 
 # Single source of truth for physical mounting orientation. Demos always
 # draw onto an unrotated SCREEN_SIZE canvas; main.py rotates that canvas in
