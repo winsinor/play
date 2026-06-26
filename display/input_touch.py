@@ -38,6 +38,23 @@ def find_touch_device():
     return None
 
 
+def remap_touch_xy(x, y, min_x, max_x, min_y, max_y, swap_xy, invert_x, invert_y):
+    """Correct raw touch coordinates in software, as an alternative to
+    getting the kernel's touchscreen-swapped-x-y/-inverted-x/-inverted-y
+    dtparam combo right (see docs/pi-setup.md) -- some HyperPixel touch
+    controller revisions need a combination that overlay parameter parsing
+    can't reliably express on a single dtparam line. Swap is applied first,
+    then per-axis inversion (using that axis's own min/max after the swap).
+    """
+    if swap_xy:
+        x, y, min_x, max_x, min_y, max_y = y, x, min_y, max_y, min_x, max_x
+    if invert_x:
+        x = max_x - (x - min_x)
+    if invert_y:
+        y = max_y - (y - min_y)
+    return x, y
+
+
 class TouchInputThread(threading.Thread):
     def __init__(
         self,
@@ -47,6 +64,9 @@ class TouchInputThread(threading.Thread):
         tap_max_distance_px,
         long_press_min_duration,
         device=None,
+        swap_xy=False,
+        invert_x=False,
+        invert_y=False,
     ):
         super().__init__(daemon=True)
         self.event_queue = event_queue
@@ -55,6 +75,10 @@ class TouchInputThread(threading.Thread):
         self.tap_max_distance_px = tap_max_distance_px
         self.long_press_min_duration = long_press_min_duration
         self._device = device
+        self.swap_xy = swap_xy
+        self.invert_x = invert_x
+        self.invert_y = invert_y
+        self._min_x = self._max_x = self._min_y = self._max_y = 0
         self._stop_event = threading.Event()
 
     def stop(self):
@@ -66,6 +90,12 @@ class TouchInputThread(threading.Thread):
             print("[input_touch] no touchscreen device found; keyboard nav only")
             return
         print(f"[input_touch] reading touch events from {device.path} ({device.name})")
+
+        abs_caps = dict(device.capabilities().get(evdev.ecodes.EV_ABS, []))
+        x_code = evdev.ecodes.ABS_MT_POSITION_X if evdev.ecodes.ABS_MT_POSITION_X in abs_caps else evdev.ecodes.ABS_X
+        y_code = evdev.ecodes.ABS_MT_POSITION_Y if evdev.ecodes.ABS_MT_POSITION_Y in abs_caps else evdev.ecodes.ABS_Y
+        self._min_x, self._max_x = abs_caps[x_code].min, abs_caps[x_code].max
+        self._min_y, self._max_y = abs_caps[y_code].min, abs_caps[y_code].max
 
         start_x = start_y = None
         last_x = last_y = None
@@ -108,9 +138,20 @@ class TouchInputThread(threading.Thread):
         except OSError as exc:
             print(f"[input_touch] touch device error, stopping touch input: {exc}")
 
+    def _remap(self, x, y):
+        if x is None or y is None:
+            return x, y
+        return remap_touch_xy(
+            x, y, self._min_x, self._max_x, self._min_y, self._max_y,
+            self.swap_xy, self.invert_x, self.invert_y,
+        )
+
     def _finish_touch(self, start_x, start_y, end_x, end_y, start_time):
         if start_x is None or end_x is None or start_time is None:
             return
+        if self.swap_xy or self.invert_x or self.invert_y:
+            start_x, start_y = self._remap(start_x, start_y)
+            end_x, end_y = self._remap(end_x, end_y)
         delta_x = end_x - start_x
         delta_y = (end_y - start_y) if (start_y is not None and end_y is not None) else 0
         duration = time.monotonic() - start_time

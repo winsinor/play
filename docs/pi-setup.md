@@ -34,6 +34,28 @@ dtparam=rotate=270,touchscreen-swapped-x-y,touchscreen-inverted-x
 ```
 — landscape, ports on the top. Pick whichever matches your physical mount.
 
+If a tap doesn't land where you actually touched after picking one of these
+(e.g. it's consistently flipped on one axis, or several swap/invert
+combinations all seem to produce the same wrong result), don't keep
+stacking more touchscreen params onto the same `dtparam=` line --
+some overlays silently drop parameters past a count limit (Pi's dtoverlay
+parser is known to truncate to the first ~3 on `dtoverlay`/`dtparam` lines
+that combine `touchscreen-swapped-x-y`/`touchscreen-inverted-x`/
+`touchscreen-inverted-y`/`rotate` together), so a 4th param can be silently
+ignored no matter what you set it to. Two ways forward:
+- Split the params across separate `dtparam=` lines (they apply cumulatively
+  to the most-recently-declared `dtoverlay`), e.g.
+  `dtparam=rotate=90` / `dtparam=touchscreen-swapped-x-y` /
+  `dtparam=touchscreen-inverted-x` / `dtparam=touchscreen-inverted-y` on
+  four separate lines, then reboot and retest.
+- Or skip the kernel quirks for axis correction entirely and use the
+  software fallback: set `TOUCH_SWAP_XY` / `TOUCH_INVERT_X` / `TOUCH_INVERT_Y`
+  in `display/config.py` (default `False`). The app reads the touch
+  device's real coordinate range at startup and remaps raw touch
+  coordinates itself (`display/input_touch.py`'s `remap_touch_xy`), so
+  fixing alignment is just editing a config constant and restarting
+  `main.py` -- no reboot, no dtparam guessing.
+
 Reboot, and confirm the display is alive:
 
 ```
@@ -149,6 +171,8 @@ All the knobs live in `display/config.py`:
 - `TAP_MAX_DURATION` / `TAP_MAX_DISTANCE_PX` — what counts as a "tap" vs a drag
 - `LONG_PRESS_MIN_DURATION` — how long a held touch needs to last to count as
   a long press instead of a tap
+- `TOUCH_SWAP_XY` / `TOUCH_INVERT_X` / `TOUCH_INVERT_Y` — software touch axis
+  correction, see the troubleshooting note in step 1 above
 
 Per-demo parameters (boid count/speed, maze cell size/animation speed,
 fractal zoom targets/rate, DVD corner-hit timing, snake move speed) are

@@ -73,6 +73,9 @@ def main(argv=None):
         tap_max_duration=config.TAP_MAX_DURATION,
         tap_max_distance_px=config.TAP_MAX_DISTANCE_PX,
         long_press_min_duration=config.LONG_PRESS_MIN_DURATION,
+        swap_xy=config.TOUCH_SWAP_XY,
+        invert_x=config.TOUCH_INVERT_X,
+        invert_y=config.TOUCH_INVERT_Y,
     )
     touch_thread.start()
 
