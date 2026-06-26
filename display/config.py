@@ -19,6 +19,6 @@ LONG_PRESS_MIN_DURATION = 0.6
 # one of 0/90/180/270; pick whichever makes the Draw demo show upright with
 # correct touch alignment for your physical mount. No reboot needed to
 # change this -- just restart main.py.
-DISPLAY_ROTATE_DEGREES = 90
+DISPLAY_ROTATE_DEGREES = 270
 
 STREAM_PORT = 8000
