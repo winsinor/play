@@ -28,7 +28,8 @@ class NBodyDemo(Demo):
     # even before the momentum-conserving kick in _add_body is applied.
     STAR_MASS = 80000.0
     ORBITER_MASS = 30.0
-    TAP_BODY_MASS = 50.0
+    TAP_BODY_MASS_MIN = 20.0
+    TAP_BODY_MASS_MAX = 80.0
     NUM_INITIAL_ORBITERS = 4
     MIN_ORBIT_RADIUS = 12.0
     # Bodies more than this many screen-widths/heights from the screen center
@@ -101,17 +102,20 @@ class NBodyDemo(Demo):
         speed = math.sqrt(self.G * star_mass / r)
         new_velocity = tangential * speed
 
+        # Random mass between TAP_BODY_MASS_MIN and TAP_BODY_MASS_MAX
+        tap_mass = np.random.uniform(self.TAP_BODY_MASS_MIN, self.TAP_BODY_MASS_MAX)
+
         # Conserve momentum: the new body's momentum must be balanced by an
         # equal-and-opposite kick to the star, otherwise every tap injects
         # net momentum into the system and the star (which dominates the
         # system's center of mass) drifts further off-screen with every tap.
         self.velocities[star_idx] = (
-            self.velocities[star_idx] - (self.TAP_BODY_MASS * new_velocity) / star_mass
+            self.velocities[star_idx] - (tap_mass * new_velocity) / star_mass
         )
 
         self.positions = np.vstack([self.positions, [float(x), float(y)]])
         self.velocities = np.vstack([self.velocities, new_velocity])
-        self.masses = np.append(self.masses, self.TAP_BODY_MASS)
+        self.masses = np.append(self.masses, tap_mass)
         self._add_color_and_trail()
 
     def update(self, dt):
