@@ -1,7 +1,16 @@
 import random
 from collections import deque
 
-from display.demos.snake import build_hamiltonian_cycle, choose_next_move
+import pygame
+import pytest
+
+from display.demos.snake import (
+    MOVES_PER_SECOND_END,
+    MOVES_PER_SECOND_START,
+    SnakeDemo,
+    build_hamiltonian_cycle,
+    choose_next_move,
+)
 
 
 def _assert_valid_cycle(cycle, cols, rows):
@@ -170,3 +179,26 @@ def test_choose_next_move_clears_the_board_without_ever_colliding():
                 else:
                     occupied.discard(snake.popleft())
             assert won, f"did not clear {cols}x{rows} board on seed {seed} (reached {len(snake)})"
+
+
+def test_snake_move_rate_ramps_up_as_it_fills_the_board():
+    # The snake gets faster per pellet: the per-move interval shrinks
+    # monotonically as the snake grows, from ~START moves/s just off the spawn
+    # to exactly END moves/s once the board is full. This acceleration is what
+    # keeps a full game near ~20 minutes instead of ~2 hours.
+    pygame.init()
+    demo = SnakeDemo()
+    demo.setup((800, 480))
+    total = len(demo.cycle)
+
+    rates = []
+    for length in (1, total // 4, total // 2, (3 * total) // 4, total):
+        demo.snake = deque(range(length))  # only the length matters to _move_interval
+        rates.append(1.0 / demo._move_interval())
+
+    assert rates == sorted(rates)  # monotonically faster as it grows
+    assert all(b > a for a, b in zip(rates, rates[1:]))  # strictly
+    # Length 1 is a hair above START (it's one cell of the way into the ramp).
+    assert MOVES_PER_SECOND_START <= rates[0] < MOVES_PER_SECOND_START + 1
+    assert rates[-1] == pytest.approx(MOVES_PER_SECOND_END)  # full board -> end speed
+    assert MOVES_PER_SECOND_END > MOVES_PER_SECOND_START
