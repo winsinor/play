@@ -6,7 +6,7 @@ import numpy as np
 import pygame
 
 from display.demos.base import Demo
-from display.manager import PinchZoomEvent, PressDragEvent, PressReleaseEvent, TapEvent
+from display.manager import PressDragEvent, PressReleaseEvent, TapEvent
 
 BG_COLOR = (8, 8, 16)
 STAR_COLOR = (255, 225, 140)
@@ -92,30 +92,50 @@ class NBodyDemo(Demo):
     TRAJECTORY_PREVIEW_DT = 1.0 / 60.0
     LAUNCH_PREVIEW_COLOR = (235, 235, 245)
 
-    # Pinch-to-zoom. The view starts at ZOOM_DEFAULT (1:1 with world space) and
-    # pinching works *both* directions from there: spread to zoom in (up to
-    # ZOOM_MAX), pinch together to zoom out (down to ZOOM_MIN, where the
+    # Zoom is driven by the on-screen slider on the right edge (see the SLIDER_*
+    # constants and _draw_sliders), not by pinch-to-zoom. The view starts at
+    # ZOOM_DEFAULT (1:1 with world space); the slider ranges from ZOOM_MIN (the
     # visible area matches the same 10x-screen tracking/culling window bodies
     # are allowed to roam in before they're culled -- see
     # TRACKING_AREA_MULTIPLIER -- so you never look at emptiness beyond where
-    # anything could still be). The old default sat right on ZOOM_MAX, so half
-    # of every pinch (the zoom-in half) was a silent no-op, which is most of
-    # why zoom felt broken/unresponsive.
+    # anything could still be) up to ZOOM_MAX (zoomed in).
     ZOOM_DEFAULT = 1.0
     ZOOM_MAX = 4.0
     ZOOM_MIN = 1.0 / TRACKING_AREA_MULTIPLIER
-    # Pinch events fire once per raw touch sample, which on real touch
-    # hardware is noisy/quantized -- applying each one directly to self.zoom
-    # made zoom jump around rather than track the fingers smoothly. Instead,
-    # each event only moves a target value, and self.zoom eases toward that
-    # target every frame (like a phone's pinch-zoom inertia) at this rate
-    # (per second, exponential decay -- higher is snappier/closer to instant).
+    # The slider only moves a target value; self.zoom eases toward that target
+    # every frame (exponential decay, per second -- higher is snappier) so a
+    # flick of the slider glides to the new zoom instead of snapping.
     ZOOM_SMOOTHING_RATE = 10.0
+
+    # Simulation-speed slider on the left edge. 1.0 is real-time; the physics
+    # is sub-stepped so even SPEED_MAX stays numerically stable (no single
+    # integration step ever exceeds MAX_PHYSICS_DT -- see update()).
+    SPEED_DEFAULT = 1.0
+    SPEED_MIN = 0.1
+    SPEED_MAX = 5.0
+
+    # Minimalist vertical sliders pinned to the screen edges (screen space, not
+    # world space -- they don't move with the camera). Both map position
+    # logarithmically to their value, since zoom and speed are both ratios.
+    SLIDER_EDGE_MARGIN = 16     # track's distance in from the screen edge
+    SLIDER_VERTICAL_INSET = 64  # track's inset from the top and bottom edges
+    SLIDER_TOUCH_WIDTH = 64     # how far in from the edge a touch still grabs it
+    SLIDER_KNOB_RADIUS = 9
+    SLIDER_TRACK_COLOR = (70, 76, 92)
+    SLIDER_FILL_COLOR = (120, 170, 230)
+    SLIDER_KNOB_COLOR = (225, 232, 245)
+    SLIDER_LABEL_COLOR = (150, 158, 174)
 
     def setup(self, screen_size):
         self.width, self.height = screen_size
         self.zoom = self.ZOOM_DEFAULT
         self._zoom_target = self.ZOOM_DEFAULT
+        self.speed = self.SPEED_DEFAULT
+        # Which slider, if any, the current press-drag is controlling ("zoom",
+        # "speed", or None for a launch drag). Pinned for the whole gesture so a
+        # finger that started on a slider keeps driving it even if it slides off.
+        self._active_slider = None
+        self.font = pygame.font.SysFont(None, 20)
         self._launch_origin_world = None
         self._launch_current_world = None
         self._spawn_initial_system()
@@ -159,9 +179,20 @@ class NBodyDemo(Demo):
 
     def handle_touch(self, event):
         if isinstance(event, TapEvent):
+            slider = self._slider_at(event.x)
+            if slider is not None:
+                self._set_slider_from_y(slider, event.y)
+                return
             world_x, world_y = self._screen_to_world(event.x, event.y)
             self._add_body(world_x, world_y)
         elif isinstance(event, PressDragEvent):
+            # A drag that starts on one of the edge sliders drives that slider
+            # for the rest of the gesture; anything else is a launch drag.
+            if self._active_slider is None and self._launch_origin_world is None:
+                self._active_slider = self._slider_at(event.start_x)
+            if self._active_slider is not None:
+                self._set_slider_from_y(self._active_slider, event.y)
+                return
             # The origin is pinned in world space the moment the drag starts
             # (using the camera offset at that instant) so it stays put on
             # screen even as the star's drift shifts the camera over the
@@ -171,13 +202,37 @@ class NBodyDemo(Demo):
                 self._launch_origin_world = np.array(self._screen_to_world(event.start_x, event.start_y))
             self._launch_current_world = np.array(self._screen_to_world(event.x, event.y))
         elif isinstance(event, PressReleaseEvent):
+            if self._active_slider is not None:
+                self._set_slider_from_y(self._active_slider, event.y)
+                self._active_slider = None
+                return
             if self._launch_origin_world is not None:
                 release_world = np.array(self._screen_to_world(event.x, event.y))
                 self._launch_body(self._launch_origin_world, release_world)
             self._launch_origin_world = None
             self._launch_current_world = None
-        elif isinstance(event, PinchZoomEvent):
-            self._zoom_target = float(np.clip(self._zoom_target * event.scale, self.ZOOM_MIN, self.ZOOM_MAX))
+
+    def _slider_at(self, screen_x):
+        """Which slider (if any) a touch at this screen x belongs to: "speed"
+        on the left edge, "zoom" on the right edge, None in the open middle."""
+        if screen_x <= self.SLIDER_TOUCH_WIDTH:
+            return "speed"
+        if screen_x >= self.width - self.SLIDER_TOUCH_WIDTH:
+            return "zoom"
+        return None
+
+    def _slider_track_y(self):
+        """(top_y, bottom_y) of the slider tracks. Top is the high-value end."""
+        return self.SLIDER_VERTICAL_INSET, self.height - self.SLIDER_VERTICAL_INSET
+
+    def _set_slider_from_y(self, slider, screen_y):
+        top_y, bottom_y = self._slider_track_y()
+        # Fraction up the track: 0 at the bottom, 1 at the top.
+        frac = float(np.clip((bottom_y - screen_y) / (bottom_y - top_y), 0.0, 1.0))
+        if slider == "zoom":
+            self._zoom_target = _log_lerp(self.ZOOM_MIN, self.ZOOM_MAX, frac)
+        else:
+            self.speed = _log_lerp(self.SPEED_MIN, self.SPEED_MAX, frac)
 
     def _world_to_screen(self, pos):
         """Maps a world-space position to where it lands on screen: the
@@ -335,9 +390,25 @@ class NBodyDemo(Demo):
             self._spawn_initial_system()
             return
 
-        dt = min(dt, self.MAX_PHYSICS_DT)
-        self.zoom += (self._zoom_target - self.zoom) * min(1.0, dt * self.ZOOM_SMOOTHING_RATE)
+        # The zoom easing tracks real (wall-clock) time, independent of the
+        # simulation-speed slider -- the camera should glide at the same rate
+        # whether the sim is in slow motion or sped up.
+        real_dt = min(dt, self.MAX_PHYSICS_DT)
+        self.zoom += (self._zoom_target - self.zoom) * min(1.0, real_dt * self.ZOOM_SMOOTHING_RATE)
 
+        # Total simulated time this frame is scaled by the speed slider, then
+        # split into sub-steps so no single Euler step exceeds MAX_PHYSICS_DT.
+        # That keeps the integrator stable at high speed (a 5x frame is run as
+        # several normal-sized steps) and simply shrinks the step at low speed.
+        sim_time = real_dt * self.speed
+        if sim_time <= 0:
+            return
+        substeps = max(1, math.ceil(sim_time / self.MAX_PHYSICS_DT))
+        step_dt = sim_time / substeps
+        for _ in range(substeps):
+            self._step_physics(step_dt)
+
+    def _step_physics(self, dt):
         accel = compute_gravitational_acceleration(
             self.positions, self.masses, g=self.G, softening=self.SOFTENING
         )
@@ -542,9 +613,39 @@ class NBodyDemo(Demo):
         self._draw_body(surface, screen_positions[0], radii[0], STAR_COLOR)
 
         self._draw_launch_preview(surface)
+        self._draw_sliders(surface)
 
     def _draw_body(self, surface, screen_pos, radius, color):
         pygame.draw.circle(surface, color, (int(screen_pos[0]), int(screen_pos[1])), int(radius))
+
+    def _draw_sliders(self, surface):
+        top_y, bottom_y = self._slider_track_y()
+        zoom_frac = _inverse_log_lerp(self.ZOOM_MIN, self.ZOOM_MAX, self._zoom_target)
+        speed_frac = _inverse_log_lerp(self.SPEED_MIN, self.SPEED_MAX, self.speed)
+        self._draw_slider(
+            surface, self.SLIDER_EDGE_MARGIN, top_y, bottom_y, speed_frac, f"{self.speed:.1f}x", "SPEED"
+        )
+        self._draw_slider(
+            surface, self.width - self.SLIDER_EDGE_MARGIN, top_y, bottom_y, zoom_frac,
+            f"{self._zoom_target:.1f}x", "ZOOM",
+        )
+
+    def _draw_slider(self, surface, x, top_y, bottom_y, frac, value_text, label):
+        x = int(x)
+        knob_y = int(bottom_y - frac * (bottom_y - top_y))
+        # Track, then the filled portion from the bottom up to the knob, then
+        # the knob itself -- a thin, unobtrusive bar with a clear handle.
+        pygame.draw.line(surface, self.SLIDER_TRACK_COLOR, (x, int(top_y)), (x, int(bottom_y)), 2)
+        pygame.draw.line(surface, self.SLIDER_FILL_COLOR, (x, int(bottom_y)), (x, knob_y), 2)
+        pygame.draw.circle(surface, self.SLIDER_KNOB_COLOR, (x, knob_y), self.SLIDER_KNOB_RADIUS)
+        self._draw_centered_text(surface, value_text, x, int(top_y) - 14)
+        self._draw_centered_text(surface, label, x, int(bottom_y) + 14)
+
+    def _draw_centered_text(self, surface, text, cx, cy):
+        rendered = self.font.render(text, True, self.SLIDER_LABEL_COLOR)
+        rect = rendered.get_rect(center=(cx, cy))
+        rect.clamp_ip(surface.get_rect())
+        surface.blit(rendered, rect)
 
     def _draw_launch_preview(self, surface):
         points = self._predict_launch_trajectory()
@@ -554,6 +655,19 @@ class NBodyDemo(Demo):
         pygame.draw.lines(surface, self.LAUNCH_PREVIEW_COLOR, False, screen_points, 1)
         ox, oy = screen_points[0]
         pygame.draw.circle(surface, self.LAUNCH_PREVIEW_COLOR, (int(ox), int(oy)), 5, 1)
+
+
+def _log_lerp(lo, hi, frac):
+    """Geometric interpolation between lo and hi: frac 0 -> lo, frac 1 -> hi,
+    with the midpoint at their geometric mean. Used for the zoom and speed
+    sliders so each equal step of the knob is an equal *ratio* of change, which
+    is what feels linear for a multiplicative quantity."""
+    return float(lo * (hi / lo) ** frac)
+
+
+def _inverse_log_lerp(lo, hi, value):
+    """Inverse of _log_lerp: the 0..1 knob fraction that maps to value."""
+    return float(math.log(value / lo) / math.log(hi / lo))
 
 
 def _planet_color(seed_index):

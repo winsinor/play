@@ -3,7 +3,7 @@ import pygame
 import pytest
 
 from display.demos.nbody import NBodyDemo, compute_gravitational_acceleration
-from display.manager import PinchZoomEvent
+from display.manager import PressDragEvent, PressReleaseEvent, TapEvent
 
 
 @pytest.fixture
@@ -119,31 +119,67 @@ def test_large_dt_spike_does_not_blow_up_positions(demo):
     assert np.isfinite(demo.velocities).all()
 
 
-def test_pinch_zoom_eases_toward_target_instead_of_snapping(demo):
-    demo.handle_touch(PinchZoomEvent(0.1))
-    assert demo.zoom == pytest.approx(1.0)  # not yet applied -- only the target moved
-    assert demo._zoom_target == pytest.approx(0.1)
-    demo.update(1 / 60)
-    assert 0.1 < demo.zoom < 1.0  # eased partway, not snapped all the way
+def _slider_y(demo, frac):
+    """Screen y for a fraction up a slider track (0 bottom, 1 top)."""
+    top_y, bottom_y = demo._slider_track_y()
+    return bottom_y - frac * (bottom_y - top_y)
 
 
-def test_pinch_zoom_eventually_reaches_target(demo):
-    demo.handle_touch(PinchZoomEvent(0.1))
-    for _ in range(300):
-        demo.update(1 / 60)
-    assert demo.zoom == pytest.approx(0.1, abs=1e-3)
-
-
-def test_pinch_can_zoom_in_past_the_default_view(demo):
-    # The default view used to sit exactly on ZOOM_MAX, so spreading two
-    # fingers to zoom *in* (scale > 1) was a clamped no-op -- half of every
-    # pinch did nothing, which is most of why zoom felt unresponsive. Zooming
-    # in from the default must now actually magnify, up to ZOOM_MAX.
+def test_zoom_slider_sets_target_and_eases_toward_it(demo):
+    # Tapping near the bottom of the right-edge slider asks for the most
+    # zoomed-out view; zoom should ease toward it rather than snap.
     assert demo.zoom == pytest.approx(demo.ZOOM_DEFAULT)
-    for _ in range(60):
-        demo.handle_touch(PinchZoomEvent(1.2))
-    assert demo._zoom_target > demo.ZOOM_DEFAULT
-    assert demo._zoom_target <= demo.ZOOM_MAX
-    for _ in range(300):
+    demo.handle_touch(TapEvent(demo.width - 8, _slider_y(demo, 0.0)))
+    assert demo._zoom_target == pytest.approx(demo.ZOOM_MIN, rel=1e-6)
+    assert demo.zoom == pytest.approx(demo.ZOOM_DEFAULT)  # target moved, not yet applied
+    demo.update(1 / 60)
+    assert demo.ZOOM_MIN < demo.zoom < demo.ZOOM_DEFAULT  # eased partway
+    for _ in range(600):
         demo.update(1 / 60)
-    assert demo.zoom > demo.ZOOM_DEFAULT
+    assert demo.zoom == pytest.approx(demo.ZOOM_MIN, abs=1e-3)
+
+
+def test_zoom_slider_can_zoom_in_past_the_default_view(demo):
+    demo.handle_touch(TapEvent(demo.width - 8, _slider_y(demo, 1.0)))  # top -> max
+    assert demo._zoom_target == pytest.approx(demo.ZOOM_MAX, rel=1e-6)
+    for _ in range(600):
+        demo.update(1 / 60)
+    assert demo.zoom == pytest.approx(demo.ZOOM_MAX, abs=1e-3)
+
+
+def test_speed_slider_sets_simulation_speed(demo):
+    assert demo.speed == pytest.approx(demo.SPEED_DEFAULT)
+    demo.handle_touch(TapEvent(8, _slider_y(demo, 1.0)))  # left top -> fastest
+    assert demo.speed == pytest.approx(demo.SPEED_MAX, rel=1e-6)
+    demo.handle_touch(TapEvent(8, _slider_y(demo, 0.0)))  # left bottom -> slowest
+    assert demo.speed == pytest.approx(demo.SPEED_MIN, rel=1e-6)
+
+
+def test_a_drag_starting_on_a_slider_controls_it_not_a_launch(demo):
+    # A press-drag whose origin is on the speed slider drives the slider and
+    # never starts a launch (no trajectory preview, no spawned body).
+    n_before = len(demo.masses)
+    demo.handle_touch(PressDragEvent(6, _slider_y(demo, 0.8), 6, _slider_y(demo, 0.5)))
+    assert demo._active_slider == "speed"
+    assert demo._launch_origin_world is None
+    demo.handle_touch(PressReleaseEvent(6, _slider_y(demo, 0.8), 6, _slider_y(demo, 0.5)))
+    assert demo._active_slider is None
+    assert len(demo.masses) == n_before  # nothing launched
+
+
+def test_a_tap_in_the_open_middle_still_adds_a_body(demo):
+    n_before = len(demo.masses)
+    demo.handle_touch(TapEvent(demo.width / 2, demo.height / 2))
+    assert len(demo.masses) == n_before + 1
+
+
+def test_high_speed_simulation_stays_finite(demo):
+    # The speed slider sub-steps the physics so even SPEED_MAX never takes an
+    # Euler step large enough to overflow into inf/nan.
+    demo.handle_touch(TapEvent(8, _slider_y(demo, 1.0)))  # max speed
+    assert demo.speed == pytest.approx(demo.SPEED_MAX)
+    for _ in range(600):
+        demo.update(1 / 60)
+        assert np.isfinite(demo.positions).all()
+        assert np.isfinite(demo.velocities).all()
+        assert len(demo.masses) > 0
