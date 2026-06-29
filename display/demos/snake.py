@@ -151,59 +151,61 @@ def build_hamiltonian_cycle(cols, rows):
 
 
 def choose_next_move(head, tail, food, occupied, cycle_index, cycle_next, cycle_length, snake_length):
-    """Pick the next cell to move into. Falls back to the next cell on the
-    Hamiltonian cycle (always safe under normal cycle-following) unless
-    there's a generous amount of free board left, in which case it greedily
-    takes the farthest-forward-along-the-cycle empty neighbor that doesn't
-    pass the food.
+    """Pick the next cell to move into: the next cell on the Hamiltonian cycle
+    by default, or -- when there's a generous amount of free board left -- the
+    farthest-forward-along-the-cycle neighbor that gets us closer to the food.
 
-    A shortcut jumps the head forward by more than one cycle index per move,
-    which breaks the usual invariant that the snake's body is a contiguous
-    arc of the cycle directly behind the head -- so a shortcut candidate is
-    only accepted if it still leaves a cycle-index gap to our own tail
-    bigger than the snake's length. Without that margin, repeated
-    shortcutting can let the head lap close enough to the tail that even
-    the "always safe" fallback move lands on an occupied cell."""
+    Why this is provably safe (it never collides and clears the whole board):
+    the snake's body always occupies a *sub-arc* of the cycle ending at the
+    head -- the cells from the tail forward (in cycle order) up to the head,
+    minus any cells a shortcut skipped over (those are simply empty). So every
+    cell strictly between the head and the tail *going forward* is guaranteed
+    empty. As long as the head only ever moves to such a cell -- i.e. its
+    forward cycle-distance stays below the head->tail distance, never
+    overtaking the tail -- it can't hit the body, and that move keeps the same
+    invariant true for next time.
+
+    The earlier version watched the gap to the tail but still let the head
+    chase a food pellet that had been placed *behind* the tail (in a gap an
+    earlier shortcut opened up). Reaching it meant overtaking the tail, which
+    breaks the invariant and is what let the snake coil up and die with most
+    of the board still empty. The fix is simply to never target past the tail:
+    when the food is behind it, just follow the cycle until a later lap brings
+    the food back ahead."""
+    head_idx = cycle_index[head]
+    tail_idx = cycle_index[tail]
     fallback = cycle_next[head]
+
+    # Forward (cycle-order) distance from the head to the tail. Everything
+    # strictly closer than this is in the empty arc ahead of the head. We stop
+    # two short of the tail, not one: landing on the cell *immediately* before
+    # the tail leaves the head with nowhere to go next turn except onto the
+    # tail's cell, which the caller scores as a collision. At length 1 head ==
+    # tail, so the whole board (cycle_length) is the room.
+    dist_to_tail = (tail_idx - head_idx) % cycle_length or cycle_length
+    max_forward = dist_to_tail - 2
+    if max_forward < 1:
+        return fallback  # board essentially full -- just follow the cycle
+
+    food_forward = (cycle_index[food] - head_idx) % cycle_length
+    if food_forward > max_forward:
+        return fallback  # food is behind the tail; advance along the cycle
+
     free_space = cycle_length - snake_length
-
     if free_space >= cycle_length * SHORTCUT_FREE_SPACE_FRACTION:
-        head_idx = cycle_index[head]
-        tail_idx = cycle_index[tail]
-        food_forward = (cycle_index[food] - head_idx) % cycle_length
-
-        def is_safe(cell_idx):
-            return (tail_idx - cell_idx) % cycle_length > snake_length
-
-        best = fallback if fallback not in occupied and is_safe(cycle_index[fallback]) else None
-        best_forward = (cycle_index[fallback] - head_idx) % cycle_length if best else -1
-
+        # Greedily take the neighbor with the largest forward step that still
+        # stops short of the food (and so, of the tail) -- every such cell is
+        # guaranteed empty, so no occupancy check is needed for correctness.
+        best = fallback
+        best_forward = 1
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             neighbor = (head[0] + dx, head[1] + dy)
-            if neighbor not in cycle_index or neighbor in occupied:
+            if neighbor not in cycle_index:
                 continue
             forward = (cycle_index[neighbor] - head_idx) % cycle_length
-            if forward == 0 or forward > food_forward:
-                continue
-            if not is_safe(cycle_index[neighbor]):
-                continue
-            if forward > best_forward:
+            if 1 <= forward <= food_forward and forward > best_forward:
                 best = neighbor
                 best_forward = forward
+        return best
 
-        if best is not None:
-            return best
-
-    if fallback not in occupied:
-        return fallback
-
-    # Last resort: the cycle-following invariant has broken down (only
-    # possible as a side effect of an earlier shortcut) and even the
-    # "always safe" cycle move is blocked. Prefer any unoccupied grid
-    # neighbor over stepping onto our own body; if truly none exists, the
-    # caller's own occupancy check turns this into a real game over.
-    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-        neighbor = (head[0] + dx, head[1] + dy)
-        if neighbor in cycle_index and neighbor not in occupied:
-            return neighbor
     return fallback

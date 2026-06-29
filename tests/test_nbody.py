@@ -132,3 +132,18 @@ def test_pinch_zoom_eventually_reaches_target(demo):
     for _ in range(300):
         demo.update(1 / 60)
     assert demo.zoom == pytest.approx(0.1, abs=1e-3)
+
+
+def test_pinch_can_zoom_in_past_the_default_view(demo):
+    # The default view used to sit exactly on ZOOM_MAX, so spreading two
+    # fingers to zoom *in* (scale > 1) was a clamped no-op -- half of every
+    # pinch did nothing, which is most of why zoom felt unresponsive. Zooming
+    # in from the default must now actually magnify, up to ZOOM_MAX.
+    assert demo.zoom == pytest.approx(demo.ZOOM_DEFAULT)
+    for _ in range(60):
+        demo.handle_touch(PinchZoomEvent(1.2))
+    assert demo._zoom_target > demo.ZOOM_DEFAULT
+    assert demo._zoom_target <= demo.ZOOM_MAX
+    for _ in range(300):
+        demo.update(1 / 60)
+    assert demo.zoom > demo.ZOOM_DEFAULT

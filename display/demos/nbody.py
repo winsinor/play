@@ -92,13 +92,17 @@ class NBodyDemo(Demo):
     TRAJECTORY_PREVIEW_DT = 1.0 / 60.0
     LAUNCH_PREVIEW_COLOR = (235, 235, 245)
 
-    # Pinch-to-zoom. The default view (zoom == 1) is already the most
-    # zoomed-in the camera goes -- pinching can only zoom back out from
-    # there, down to where the visible area matches the same 10x-screen
-    # tracking/culling window bodies are allowed to roam in before they're
-    # culled (see TRACKING_AREA_MULTIPLIER), so you're never looking at
-    # emptiness beyond where anything could possibly still be.
-    ZOOM_MAX = 1.0
+    # Pinch-to-zoom. The view starts at ZOOM_DEFAULT (1:1 with world space) and
+    # pinching works *both* directions from there: spread to zoom in (up to
+    # ZOOM_MAX), pinch together to zoom out (down to ZOOM_MIN, where the
+    # visible area matches the same 10x-screen tracking/culling window bodies
+    # are allowed to roam in before they're culled -- see
+    # TRACKING_AREA_MULTIPLIER -- so you never look at emptiness beyond where
+    # anything could still be). The old default sat right on ZOOM_MAX, so half
+    # of every pinch (the zoom-in half) was a silent no-op, which is most of
+    # why zoom felt broken/unresponsive.
+    ZOOM_DEFAULT = 1.0
+    ZOOM_MAX = 4.0
     ZOOM_MIN = 1.0 / TRACKING_AREA_MULTIPLIER
     # Pinch events fire once per raw touch sample, which on real touch
     # hardware is noisy/quantized -- applying each one directly to self.zoom
@@ -110,8 +114,8 @@ class NBodyDemo(Demo):
 
     def setup(self, screen_size):
         self.width, self.height = screen_size
-        self.zoom = self.ZOOM_MAX
-        self._zoom_target = self.ZOOM_MAX
+        self.zoom = self.ZOOM_DEFAULT
+        self._zoom_target = self.ZOOM_DEFAULT
         self._launch_origin_world = None
         self._launch_current_world = None
         self._spawn_initial_system()

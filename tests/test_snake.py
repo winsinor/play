@@ -129,3 +129,44 @@ def test_choose_next_move_soak_recovers_from_any_self_collision():
             occupied.discard(old_tail)
 
     assert collisions < ticks * 0.05
+
+
+def test_choose_next_move_clears_the_board_without_ever_colliding():
+    # The shortcut heuristic is now provably safe: because the head never
+    # targets a cell at or past the tail (in cycle order), it only ever steps
+    # into the empty arc ahead of it, so it cannot collide and it fills the
+    # whole board. This used to be false -- a food pellet landing behind the
+    # tail let the head overtake it, coil up and die with most of the board
+    # still empty. Play full games on a couple of realistic boards and assert
+    # every one is won outright with zero collisions.
+    for cols, rows in [(12, 10), (16, 12)]:
+        cycle = build_hamiltonian_cycle(cols, rows)
+        cycle_index = {cell: i for i, cell in enumerate(cycle)}
+        cycle_next = {cell: cycle[(i + 1) % len(cycle)] for i, cell in enumerate(cycle)}
+        cycle_length = len(cycle)
+
+        for seed in range(8):
+            rng = random.Random(seed)
+            snake = deque([cycle[0]])
+            occupied = {cycle[0]}
+            free = [c for c in cycle if c not in occupied]
+            food = rng.choice(free)
+
+            won = False
+            for _ in range(cycle_length * cycle_length):
+                head, tail = snake[-1], snake[0]
+                nxt = choose_next_move(
+                    head, tail, food, occupied, cycle_index, cycle_next, cycle_length, len(snake)
+                )
+                assert nxt not in occupied, f"collision on {cols}x{rows} seed {seed}, len {len(snake)}"
+                snake.append(nxt)
+                occupied.add(nxt)
+                if nxt == food:
+                    free = [c for c in cycle if c not in occupied]
+                    if not free:
+                        won = True
+                        break
+                    food = rng.choice(free)
+                else:
+                    occupied.discard(snake.popleft())
+            assert won, f"did not clear {cols}x{rows} board on seed {seed} (reached {len(snake)})"

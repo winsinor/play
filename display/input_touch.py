@@ -99,6 +99,7 @@ class TouchInputThread(threading.Thread):
         rotate_degrees=0,
         canvas_width=800,
         canvas_height=480,
+        min_pinch_separation_px=60,
     ):
         super().__init__(daemon=True)
         self.event_queue = event_queue
@@ -109,6 +110,12 @@ class TouchInputThread(threading.Thread):
         self.tap_max_duration = tap_max_duration
         self.tap_max_distance_px = tap_max_distance_px
         self.long_press_min_duration = long_press_min_duration
+        # Two fingers closer together than this aren't treated as a pinch. Real
+        # pinch-to-zoom starts with the fingers well apart; a sub-threshold gap
+        # is almost always the incidental two-finger overlap you get from
+        # tapping the screen rapidly (e.g. adding planets fast in the n-body
+        # demo), which must not be allowed to fire spurious zoom events.
+        self.min_pinch_separation_px = min_pinch_separation_px
         self._device = device
         self.swap_xy, self.invert_x, self.invert_y = touch_flags_for_rotation(rotate_degrees)
         self.canvas_width = canvas_width
@@ -223,7 +230,9 @@ class TouchInputThread(threading.Thread):
                         slot_positions.clear()
                         pinch_prev_distance = None
 
-                dragging = self._maybe_emit_drag(start_x, start_y, last_x, last_y, start_time, dragging)
+                dragging = self._maybe_emit_drag(
+                    start_x, start_y, last_x, last_y, start_time, dragging, gesture_had_second_finger
+                )
                 pinch_prev_distance = self._maybe_emit_pinch(active_slots, slot_positions, pinch_prev_distance)
         except OSError as exc:
             print(f"[input_touch] touch device error, stopping touch input: {exc}")
@@ -258,18 +267,35 @@ class TouchInputThread(threading.Thread):
                 return prev_distance  # not all positions known yet -- keep waiting
             points.append(self._remap(pos[0], pos[1]))
         distance = math.hypot(points[0][0] - points[1][0], points[0][1] - points[1][1])
+        if distance < self.min_pinch_separation_px:
+            # Fingers too close to be a deliberate pinch (see
+            # min_pinch_separation_px). Drop the baseline so that if they do
+            # spread into a real pinch later, the first scale is measured from
+            # the moment they crossed the threshold rather than from this tiny
+            # -- and noise-amplifying -- separation.
+            return None
         scale = pinch_scale(prev_distance, distance)
         if scale is not None and distance != prev_distance:
             self.event_queue.put(PinchZoomEvent(scale))
         return distance
 
-    def _maybe_emit_drag(self, start_x, start_y, last_x, last_y, start_time, dragging):
+    def _maybe_emit_drag(self, start_x, start_y, last_x, last_y, start_time, dragging, had_second_finger=False):
         """Called after every position update for the touch in progress (if
         any). Once a hold has both lasted long_press_min_duration and moved
         past tap_max_distance_px, it becomes a drag: emits a PressDragEvent
         for this position and every subsequent one, and once started never
         reverts back to non-dragging for this touch (checked by the caller,
-        which skips re-entering this method once a touch has ended)."""
+        which skips re-entering this method once a touch has ended).
+
+        A drag is never started or continued once a second finger has joined
+        the gesture: that's a pinch, and the primary finger's motion during it
+        must not also be reported as a one-finger drag. Without this, pinching
+        to zoom the n-body demo would drift the first finger far enough to fire
+        PressDragEvents -- popping up the slingshot launch preview and, on
+        release, actually launching a planet. (The swipe path and _finish_touch
+        already guard against the same second-finger contamination.)"""
+        if had_second_finger:
+            return dragging
         if start_x is None or start_y is None or last_x is None or last_y is None or start_time is None:
             return dragging
         if self.swap_xy or self.invert_x or self.invert_y:

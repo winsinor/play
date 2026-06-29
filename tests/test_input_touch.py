@@ -323,3 +323,44 @@ def test_two_finger_pinch_together_emits_shrinking_scale(monkeypatch):
     pinches = [e for e in result if isinstance(e, PinchZoomEvent)]
     assert pinches, "expected at least one PinchZoomEvent"
     assert all(p.scale < 1.0 for p in pinches)
+
+
+def test_pinch_never_emits_a_drag_or_release(monkeypatch):
+    # Regression guard: while two fingers are pinching, the primary finger can
+    # drift a long way. That motion must never be reported as a one-finger
+    # drag/release -- otherwise the n-body demo pops up its slingshot launch
+    # preview mid-pinch and launches a planet when the pinch ends. The second
+    # finger is down before the first one moves, so the whole gesture is a
+    # pinch from the start. (long_press_min_duration 0.0 means a one-finger
+    # move this size *would* drag if the gate weren't working.)
+    events = [
+        *_down(0, 1, 380, 500),
+        *_down(1, 2, 470, 500),  # second finger down first -> this is a pinch
+        *_move(0, 300, 500),  # primary finger drifts 80px during the pinch
+        *_move(1, 560, 500),
+        *_move(0, 250, 500),
+        *_up(1),
+        *_up(0),
+        *_btn(0),
+    ]
+    result = _run_gesture(monkeypatch, events)
+    assert not any(isinstance(e, (PressDragEvent, PressReleaseEvent)) for e in result)
+    assert any(isinstance(e, PinchZoomEvent) for e in result), "the pinch itself should still zoom"
+
+
+def test_two_fingers_close_together_do_not_pinch(monkeypatch):
+    # Fingers nearer than min_pinch_separation_px are the incidental overlap of
+    # rapid tapping (e.g. adding planets fast), not a deliberate pinch, so they
+    # must not fire zoom events -- this is what made the n-body view collapse
+    # ("reset") when planets were added quickly.
+    events = [
+        *_down(0, 1, 400, 500),
+        *_down(1, 2, 430, 500),  # ~30px apart, below the 60px default threshold
+        *_move(0, 405, 500),
+        *_move(1, 426, 500),
+        *_up(1),
+        *_up(0),
+        *_btn(0),
+    ]
+    result = _run_gesture(monkeypatch, events)
+    assert not any(isinstance(e, PinchZoomEvent) for e in result)
