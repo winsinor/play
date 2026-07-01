@@ -162,9 +162,26 @@ def test_a_drag_starting_on_a_slider_controls_it_not_a_launch(demo):
     demo.handle_touch(PressDragEvent(6, _slider_y(demo, 0.8), 6, _slider_y(demo, 0.5)))
     assert demo._active_slider == "speed"
     assert demo._launch_origin_world is None
+    assert demo.is_dragging() is True
     demo.handle_touch(PressReleaseEvent(6, _slider_y(demo, 0.8), 6, _slider_y(demo, 0.5)))
     assert demo._active_slider is None
+    assert demo.is_dragging() is False
     assert len(demo.masses) == n_before  # nothing launched
+
+
+def test_is_dragging_reflects_an_in_progress_launch(demo):
+    assert demo.is_dragging() is False
+    demo.handle_touch(PressDragEvent(450, 250, 420, 250))
+    assert demo.is_dragging() is True
+    demo.handle_touch(PressReleaseEvent(450, 250, 420, 250))
+    assert demo.is_dragging() is False
+
+
+def test_instant_drag_zones_are_empty_launch_can_start_anywhere(demo):
+    # nbody's launch drag is intentionally allowed to start from any empty
+    # point, so it keeps the standard hold-then-drag gate everywhere rather
+    # than opting any region into an instant start.
+    assert demo.instant_drag_zones() == ()
 
 
 def test_a_tap_in_the_open_middle_still_adds_a_body(demo):

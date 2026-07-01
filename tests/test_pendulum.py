@@ -3,6 +3,7 @@ import math
 import pygame
 import pytest
 
+from display.demos.base import Demo
 from display.demos.pendulum import (
     DoublePendulumDemo,
     compute_double_pendulum_accelerations,
@@ -10,6 +11,25 @@ from display.demos.pendulum import (
     rk4_step,
 )
 from display.manager import PressDragEvent, PressReleaseEvent, TapEvent
+
+
+def test_base_demo_has_no_instant_drag_zones_and_never_reports_dragging():
+    class _Stub(Demo):
+        def setup(self, screen_size):
+            pass
+
+        def handle_event(self, event):
+            pass
+
+        def update(self, dt):
+            pass
+
+        def draw(self, surface):
+            pass
+
+    stub = _Stub()
+    assert stub.instant_drag_zones() == ()
+    assert stub.is_dragging() is False
 
 
 @pytest.fixture
@@ -93,12 +113,15 @@ def test_dragging_bob1_sets_theta_and_freezes_physics(demo):
     assert demo.theta1 == pytest.approx(math.pi / 2, abs=1e-6)
     assert demo.omega1 == 0.0
 
+    assert demo.is_dragging() is True
+
     theta1_before = demo.theta1
     demo.update(1 / 60)
     assert demo.theta1 == theta1_before  # frozen mid-drag
 
     demo.handle_touch(PressReleaseEvent(target[0], target[1], start[0], start[1]))
     assert demo._active_bob is None
+    assert demo.is_dragging() is False
     demo.update(1 / 60)
     assert demo.theta1 != theta1_before  # resumes swinging after release
 
@@ -119,10 +142,27 @@ def test_drag_starting_away_from_either_bob_is_a_no_op(demo):
     theta1_before, theta2_before = demo.theta1, demo.theta2
     demo.handle_touch(PressDragEvent(5, 5, 5, 5))
     assert demo._active_bob == "none"
+    assert demo.is_dragging() is False  # nothing grabbed -- fine to switch demos
     demo.update(1 / 60)  # not frozen -- physics keeps running
     assert (demo.theta1, demo.theta2) != (theta1_before, theta2_before)
     demo.handle_touch(PressReleaseEvent(5, 5, 5, 5))
     assert demo._active_bob is None
+
+
+def test_instant_drag_zones_track_the_live_bob_positions(demo):
+    p1, p2 = demo._bob_positions()
+    zones = demo.instant_drag_zones()
+    assert zones == (
+        (p1[0], p1[1], demo.GRAB_RADIUS),
+        (p2[0], p2[1], demo.GRAB_RADIUS),
+    )
+    for _ in range(30):
+        demo.update(1 / 60)
+    p1_after, p2_after = demo._bob_positions()
+    assert demo.instant_drag_zones() == (
+        (p1_after[0], p1_after[1], demo.GRAB_RADIUS),
+        (p2_after[0], p2_after[1], demo.GRAB_RADIUS),
+    )
 
 
 def test_trail_grows_as_the_pendulum_swings(demo):

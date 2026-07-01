@@ -149,6 +149,7 @@ def _run_gesture(monkeypatch, events, **thread_kwargs):
     monkeypatch.setattr(input_touch, "evdev", _FakeEcodesModule())
     device = _FakeDevice(events)
     event_queue = queue.Queue()
+    instant_drag_zones = thread_kwargs.pop("instant_drag_zones", ())
     thread = TouchInputThread(
         event_queue,
         swipe_threshold_fraction=thread_kwargs.pop("swipe_threshold_fraction", 0.3),
@@ -160,6 +161,7 @@ def _run_gesture(monkeypatch, events, **thread_kwargs):
         canvas_height=1000,
         **thread_kwargs,
     )
+    thread.instant_drag_zones = instant_drag_zones
     thread.run()  # called directly (not .start()) -- synchronous, no real thread needed
     drained = []
     while not event_queue.empty():
@@ -264,6 +266,44 @@ def test_drag_past_threshold_emits_drag_then_release(monkeypatch):
     # never misclassified as a tap or a swipe
     assert not any(isinstance(e, TapEvent) for e in result)
     assert not any(e in (NavEvent.PREV, NavEvent.NEXT) for e in result)
+
+
+def test_instant_drag_zone_skips_the_hold_delay(monkeypatch):
+    # A touch starting inside an instant_drag_zone (e.g. directly on a
+    # pendulum bob) drags as soon as it moves past tap_max_distance_px, even
+    # with a long_press_min_duration high enough that it would otherwise
+    # never be satisfied in this near-zero-real-time synchronous test.
+    events = [
+        *_down(0, 1, 100, 100),
+        *_btn(1),
+        *_move(0, 150, 100),  # 50px -- past tap_max_distance_px (20)
+        *_up(0),
+        *_btn(0),
+    ]
+    result = _run_gesture(
+        monkeypatch, events, long_press_min_duration=1.0, instant_drag_zones=((100, 100, 30),)
+    )
+    assert any(isinstance(e, PressDragEvent) for e in result)
+    assert isinstance(result[-1], PressReleaseEvent)
+
+
+def test_touch_outside_instant_drag_zone_still_needs_the_hold_delay(monkeypatch):
+    # Same move as above, but the zone is nowhere near where the touch
+    # started -- it must fall back to the standard long_press_min_duration
+    # gate (which this synchronous test can never satisfy), so a swipe
+    # elsewhere on the same screen still works normally instead of being
+    # swallowed as a drag.
+    events = [
+        *_down(0, 1, 100, 100),
+        *_btn(1),
+        *_move(0, 150, 100),
+        *_up(0),
+        *_btn(0),
+    ]
+    result = _run_gesture(
+        monkeypatch, events, long_press_min_duration=1.0, instant_drag_zones=((900, 900, 30),)
+    )
+    assert not any(isinstance(e, (PressDragEvent, PressReleaseEvent)) for e in result)
 
 
 def test_stationary_hold_past_tap_duration_is_a_no_op(monkeypatch):

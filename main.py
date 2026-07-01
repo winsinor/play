@@ -114,6 +114,10 @@ def main(argv=None):
                 fps_log_timer = 0.0
                 print(f"[fps] {clock.get_fps():.1f} (target {config.FPS})")
 
+        # Refresh which screen regions (if any) let a touch start dragging
+        # immediately for the active demo -- see Demo.instant_drag_zones.
+        touch_thread.instant_drag_zones = manager.instant_drag_zones()
+
         while not input_queue.empty():
             input_event = input_queue.get_nowait()
             if isinstance(input_event, NavEvent):

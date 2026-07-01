@@ -110,6 +110,13 @@ class TouchInputThread(threading.Thread):
         self.tap_max_duration = tap_max_duration
         self.tap_max_distance_px = tap_max_distance_px
         self.long_press_min_duration = long_press_min_duration
+        # Screen-space (x, y, radius) circles where a touch starting inside
+        # skips long_press_min_duration and can drag right away -- refreshed
+        # every frame from the active demo's instant_drag_zones() (see
+        # main.py and Demo.instant_drag_zones). Reading/replacing this list
+        # from another thread is safe: it's always swapped for a whole new
+        # tuple/list, never mutated in place.
+        self.instant_drag_zones = ()
         # Two fingers closer together than this aren't treated as a pinch. Real
         # pinch-to-zoom starts with the fingers well apart; a sub-threshold gap
         # is almost always the incidental two-finger overlap you get from
@@ -281,11 +288,13 @@ class TouchInputThread(threading.Thread):
 
     def _maybe_emit_drag(self, start_x, start_y, last_x, last_y, start_time, dragging, had_second_finger=False):
         """Called after every position update for the touch in progress (if
-        any). Once a hold has both lasted long_press_min_duration and moved
-        past tap_max_distance_px, it becomes a drag: emits a PressDragEvent
-        for this position and every subsequent one, and once started never
-        reverts back to non-dragging for this touch (checked by the caller,
-        which skips re-entering this method once a touch has ended).
+        any). Once a hold has both lasted long_press_min_duration (or the
+        touch started inside one of instant_drag_zones -- see its docstring)
+        and moved past tap_max_distance_px, it becomes a drag: emits a
+        PressDragEvent for this position and every subsequent one, and once
+        started never reverts back to non-dragging for this touch (checked
+        by the caller, which skips re-entering this method once a touch has
+        ended).
 
         A drag is never started or continued once a second finger has joined
         the gesture: that's a pinch, and the primary finger's motion during it
@@ -304,11 +313,15 @@ class TouchInputThread(threading.Thread):
         if not dragging:
             distance = max(abs(last_x - start_x), abs(last_y - start_y))
             elapsed = time.monotonic() - start_time
-            if elapsed < self.long_press_min_duration or distance < self.tap_max_distance_px:
+            hold_satisfied = elapsed >= self.long_press_min_duration or self._in_instant_drag_zone(start_x, start_y)
+            if not hold_satisfied or distance < self.tap_max_distance_px:
                 return dragging
             dragging = True
         self.event_queue.put(PressDragEvent(last_x, last_y, start_x, start_y))
         return dragging
+
+    def _in_instant_drag_zone(self, x, y):
+        return any(math.hypot(x - zx, y - zy) <= radius for zx, zy, radius in self.instant_drag_zones)
 
     def _finish_touch(self, start_x, start_y, end_x, end_y, start_time, dragging, had_second_finger=False):
         if start_x is None or end_x is None or start_time is None:

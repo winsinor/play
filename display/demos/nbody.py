@@ -212,6 +212,9 @@ class NBodyDemo(Demo):
             self._launch_origin_world = None
             self._launch_current_world = None
 
+    def is_dragging(self):
+        return self._active_slider is not None or self._launch_origin_world is not None
+
     def _slider_at(self, screen_x):
         """Which slider (if any) a touch at this screen x belongs to: "speed"
         on the left edge, "zoom" on the right edge, None in the open middle."""

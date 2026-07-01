@@ -78,6 +78,16 @@ class DoublePendulumDemo(Demo):
                 self._set_bob_angle(self._active_bob, event.x, event.y)
             self._active_bob = None
 
+    def is_dragging(self):
+        return self._active_bob in (1, 2)
+
+    def instant_drag_zones(self):
+        # A touch has to land directly on a bob to grab it, so there's no
+        # tap-vs-drag ambiguity to protect against here -- it can start
+        # dragging the instant it moves, no hold-still delay first.
+        p1, p2 = self._bob_positions()
+        return ((p1[0], p1[1], self.GRAB_RADIUS), (p2[0], p2[1], self.GRAB_RADIUS))
+
     def _bob_at(self, x, y):
         """Which bob (1, 2, or None) a touch at screen (x, y) grabs -- bob1
         wins ties since it's drawn/reached first along the rod chain."""

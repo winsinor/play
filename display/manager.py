@@ -72,6 +72,8 @@ class DemoManager:
         self.current.setup(screen_size)
 
     def handle_nav(self, nav_event):
+        if self.is_dragging():
+            return  # never switch demos out from under an in-progress drag
         if nav_event == NavEvent.NEXT:
             self._switch(1)
         elif nav_event == NavEvent.PREV:
@@ -92,6 +94,20 @@ class DemoManager:
 
     def draw(self, surface):
         self._guard(self.current.draw, surface)
+
+    def is_dragging(self):
+        try:
+            return self.current.is_dragging()
+        except Exception:
+            logger.exception("%s.is_dragging() failed", type(self.current).__name__)
+            return False
+
+    def instant_drag_zones(self):
+        try:
+            return self.current.instant_drag_zones()
+        except Exception:
+            logger.exception("%s.instant_drag_zones() failed", type(self.current).__name__)
+            return ()
 
     def _guard(self, method, *args):
         # No demo's update/draw/event handling is allowed to take the whole
