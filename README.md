@@ -34,6 +34,11 @@ demos, so touchscreen setup can be checked before anything else.
   into a bar-chart histogram that approximates a binomial distribution. Tap
   to skip the post-round pause and start a new round immediately, long-press
   to reroll at any time.
+- **Double Pendulum** — a chaotic red-and-blue double pendulum integrated
+  with RK4 from the standard equations of motion, leaving a fading trace
+  behind each bob. Drag either ball to reposition it (physics pauses while
+  held, then resumes from rest on release); tap to reset to the default
+  starting pose.
 
 ## Controls
 
