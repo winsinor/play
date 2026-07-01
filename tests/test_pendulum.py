@@ -92,15 +92,13 @@ def test_large_dt_spike_stays_finite(demo):
     assert math.isfinite(demo.omega2)
 
 
-def test_tap_resets_to_initial_state(demo):
+def test_tap_does_not_reset_the_pendulum(demo):
     for _ in range(120):
         demo.update(1 / 60)
-    assert demo.theta1 != pytest.approx(demo.INITIAL_THETA1)
+    theta1_before, theta2_before = demo.theta1, demo.theta2
     demo.handle_touch(TapEvent(10, 10))
-    assert demo.theta1 == pytest.approx(demo.INITIAL_THETA1)
-    assert demo.theta2 == pytest.approx(demo.INITIAL_THETA2)
-    assert demo.omega1 == 0.0
-    assert demo.omega2 == 0.0
+    assert demo.theta1 == theta1_before
+    assert demo.theta2 == theta2_before
 
 
 def test_dragging_bob1_sets_theta_and_freezes_physics(demo):

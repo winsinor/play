@@ -37,8 +37,7 @@ demos, so touchscreen setup can be checked before anything else.
 - **Double Pendulum** — a chaotic red-and-blue double pendulum integrated
   with RK4 from the standard equations of motion, leaving a fading trace
   behind each bob. Drag either ball to reposition it (physics pauses while
-  held, then resumes from rest on release); tap to reset to the default
-  starting pose.
+  held, then resumes from rest on release).
 
 ## Controls
 

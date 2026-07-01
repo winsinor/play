@@ -4,7 +4,7 @@ from collections import deque
 import pygame
 
 from display.demos.base import Demo
-from display.manager import PressDragEvent, PressReleaseEvent, TapEvent
+from display.manager import PressDragEvent, PressReleaseEvent
 
 BG_COLOR = (8, 8, 16)
 ROD_COLOR = (200, 200, 210)
@@ -33,11 +33,13 @@ class DoublePendulumDemo(Demo):
     INITIAL_THETA2 = math.pi / 2  # a high-energy start that swings chaotically
 
     PIXELS_PER_METER = 150.0
-    PIVOT_Y_FRACTION = 0.22  # how far down the screen the fixed pivot sits
+    PIVOT_Y_FRACTION = 0.34  # how far down the screen the fixed pivot sits --
+    # low enough that hanging fully extended (both rods straight down) very
+    # nearly reaches the bottom edge without actually touching it.
 
     BOB1_RADIUS = 11
     BOB2_RADIUS = 11
-    GRAB_RADIUS = 32  # touch hit-test radius around each bob, in screen px
+    GRAB_RADIUS = 55  # touch hit-test radius around each bob, in screen px
 
     TRAIL_LENGTH = 600  # ~10s of trace at 60fps
 
@@ -66,9 +68,7 @@ class DoublePendulumDemo(Demo):
         pass
 
     def handle_touch(self, event):
-        if isinstance(event, TapEvent):
-            self._reset_state()
-        elif isinstance(event, PressDragEvent):
+        if isinstance(event, PressDragEvent):
             if self._active_bob is None:
                 self._active_bob = self._bob_at(event.start_x, event.start_y) or "none"
             if self._active_bob in (1, 2):
